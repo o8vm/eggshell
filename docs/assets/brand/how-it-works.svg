@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="520" viewBox="0 0 1280 520" role="img" aria-labelledby="title desc">
+  <title id="title">How Eggshell carries work across Codex chats</title>
+  <desc id="desc">A normal Codex chat records work and outcomes. Eggshell connects equivalent work and follows useful outcomes in a local egg file. An independent chat receives prior work together with the work still left to do.</desc>
+  <rect width="1280" height="520" rx="30" fill="#f7f3ea"/>
+  <text x="640" y="52" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="28" font-weight="780" fill="#171512">How Eggshell carries work across chats</text>
+
+  <g font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
+    <rect x="38" y="90" width="354" height="352" rx="25" fill="#171717"/>
+    <text x="68" y="130" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="750" letter-spacing="1.4" fill="#b8aa92">1 · RECORD</text>
+    <text x="68" y="172" font-size="23" font-weight="750" fill="#fffdf8">A normal Codex chat</text>
+    <rect x="66" y="202" width="298" height="74" rx="15" fill="#29251f" stroke="#443c32"/>
+    <text x="84" y="229" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" fill="#d9cdb8">WORK</text>
+    <text x="84" y="257" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#fffdf8">search old_api</text>
+    <circle cx="340" cy="238" r="8" fill="#8fd6a2"/>
+    <rect x="66" y="292" width="298" height="92" rx="15" fill="#29251f" stroke="#443c32"/>
+    <text x="84" y="320" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" fill="#d9cdb8">OUTCOME</text>
+    <text x="84" y="348" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#fffdf8">3 usage sites found</text>
+    <text x="84" y="372" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#e9b872">test suite timed out</text>
+
+    <path d="M405 266h35m-11-11 12 11-12 11" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="457" y="90" width="366" height="352" rx="25" fill="#fffdf8" stroke="#d9cdb8" stroke-width="2"/>
+    <text x="487" y="130" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="750" letter-spacing="1.4" fill="#766a5c">2 · CONNECT</text>
+    <text x="487" y="172" font-size="23" font-weight="750" fill="#171512">The local .egg graph</text>
+    <g stroke="#766a5c" stroke-width="2.5" fill="none">
+      <path d="M529 244l79 49m44-1 80-48M607 293h45M529 244h203"/>
+    </g>
+    <g>
+      <circle cx="529" cy="244" r="17" fill="#171512"/>
+      <circle cx="607" cy="293" r="17" fill="#8fd6a2"/>
+      <circle cx="652" cy="292" r="17" fill="#8fd6a2"/>
+      <circle cx="732" cy="244" r="17" fill="#e9b872"/>
+    </g>
+    <rect x="488" y="337" width="143" height="40" rx="20" fill="#e8f4e9"/>
+    <text x="559" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#245b31">Union: same work</text>
+    <rect x="643" y="337" width="151" height="40" rx="20" fill="#f7e9d3"/>
+    <text x="718" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#714a14">Follow outcomes</text>
+    <text x="640" y="408" text-anchor="middle" font-size="15" fill="#5b5145">Duplicates collapse for this request</text>
+
+    <path d="M837 266h35m-11-11 12 11-12 11" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="888" y="90" width="354" height="352" rx="25" fill="#171717"/>
+    <text x="918" y="130" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="750" letter-spacing="1.4" fill="#b8aa92">3 · CONTINUE</text>
+    <text x="918" y="172" font-size="23" font-weight="750" fill="#fffdf8">An independent chat</text>
+    <rect x="916" y="202" width="298" height="85" rx="15" fill="#243126" stroke="#45634b"/>
+    <text x="934" y="230" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" fill="#8fd6a2">PRIOR WORK</text>
+    <text x="934" y="259" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#fffdf8">reuse the 3 usage sites</text>
+    <rect x="916" y="303" width="298" height="81" rx="15" fill="#29251f" stroke="#554631"/>
+    <text x="934" y="331" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" fill="#e9b872">WORK LEFT</text>
+    <text x="934" y="360" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="16" fill="#fffdf8">update and verify the code</text>
+  </g>
+
+  <text x="640" y="483" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="17" font-weight="650" fill="#5b5145">Normal prompts · local data · every handoff remains inspectable</text>
+</svg>

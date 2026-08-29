@@ -1,0 +1,26 @@
+{
+  "name": "eggshell",
+  "version": "0.1.0",
+  "description": "Reduce repeated Codex work with a persistent, user-controlled work graph",
+  "author": {
+    "name": "o8vm",
+    "url": "https://github.com/o8vm"
+  },
+  "homepage": "https://github.com/o8vm/eggshell",
+  "repository": "https://github.com/o8vm/eggshell",
+  "license": "Apache-2.0",
+  "keywords": ["codex", "agent-memory", "work-graph", "productivity"],
+  "interface": {
+    "displayName": "Eggshell",
+    "shortDescription": "Continue related work without rediscovering it.",
+    "longDescription": "Eggshell records native Codex work in user-controlled .egg files, then uses Union and saturation to hand later sessions reusable outcomes and an open frontier.",
+    "developerName": "o8vm",
+    "category": "Productivity",
+    "capabilities": [],
+    "websiteURL": "https://github.com/o8vm/eggshell",
+    "brandColor": "#F7F3EA",
+    "defaultPrompt": [
+      "Continue this task from relevant prior work without repeating completed investigation."
+    ]
+  }
+}

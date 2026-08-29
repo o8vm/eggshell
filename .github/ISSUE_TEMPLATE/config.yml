@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/o8vm/eggshell/security/advisories/new
+    about: Report vulnerabilities privately.
+  - name: Questions and ideas
+    url: https://github.com/o8vm/eggshell/discussions
+    about: Ask usage questions or discuss ideas before opening an issue.

@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a focused product or graph capability
+title: "proposal: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What repeated work or authority problem cannot be handled today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior rather than a new persistent type.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing mechanisms considered
+      description: Could profiles, projection, Union, All, Outcome, or open handoff express it?

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lean:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+      - name: Build
+        run: lake build eggshell eggshell_tests
+      - name: Test
+        run: PLUGIN_DATA=.lake/eggshell-tests-data .lake/build/bin/eggshell_tests
+      - name: Check installer syntax
+        run: sh -n install.sh

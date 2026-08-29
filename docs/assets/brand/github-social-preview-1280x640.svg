@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Eggshell — stop paying twice for work Codex already did</title>
+  <desc id="desc">Eggshell carries selected completed work from one Codex chat to another independent chat.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#201d19" flood-opacity=".13"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="640" fill="#f7f3ea"/>
+  <image href="eggshell-primary-horizontal.svg" x="440" y="28" width="400" height="154"/>
+  <text x="640" y="230" fill="#171512" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="50" font-weight="800" text-anchor="middle">STOP PAYING TWICE FOR WORK</text>
+  <text x="640" y="286" fill="#171512" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="50" font-weight="800" text-anchor="middle">CODEX ALREADY DID.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="90" y="342" width="438" height="178" rx="22" fill="#171512"/>
+    <rect x="752" y="342" width="438" height="178" rx="22" fill="#171512"/>
+  </g>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <text x="122" y="382" fill="#b8aa92" font-size="15" font-weight="700" letter-spacing="1.5">CHAT A · INVESTIGATE</text>
+    <text x="122" y="425" fill="#fffdf8" font-size="22" font-weight="700">search repository</text>
+    <text x="122" y="462" fill="#8fd6a2" font-size="17">→ 3 relevant paths</text>
+    <text x="122" y="493" fill="#e9b872" font-size="17">→ test timed out</text>
+
+    <text x="784" y="382" fill="#b8aa92" font-size="15" font-weight="700" letter-spacing="1.5">CHAT B · INDEPENDENT</text>
+    <text x="784" y="425" fill="#8fd6a2" font-size="17">PRIOR WORK SELECTED</text>
+    <text x="784" y="459" fill="#fffdf8" font-size="20" font-weight="700">continue from open work</text>
+    <text x="784" y="493" fill="#fffdf8" font-size="17">without blind rediscovery</text>
+  </g>
+
+  <path d="M546 430 H594" fill="none" stroke="#171512" stroke-width="4" stroke-linecap="round"/>
+  <path d="M586 421 L597 430 L586 439" fill="none" stroke="#171512" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M686 430 H734" fill="none" stroke="#171512" stroke-width="4" stroke-linecap="round"/>
+  <path d="M726 421 L737 430 L726 439" fill="none" stroke="#171512" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M610 380 Q640 360 670 380 L681 469 Q640 494 599 469 Z" fill="#fffdf8" stroke="#171512" stroke-width="3"/>
+  <path d="M603 390 L618 400 L630 387 L643 401 L657 387 L674 400 L678 390" fill="none" stroke="#171512" stroke-width="3" stroke-linejoin="round"/>
+  <text x="640" y="438" fill="#171512" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="25" font-weight="800" text-anchor="middle">.egg</text>
+
+  <text x="640" y="586" fill="#5b5145" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="20" font-weight="700" text-anchor="middle" letter-spacing="1">LOCAL WORK GRAPH FOR INDEPENDENT CODEX CHATS</text>
+</svg>

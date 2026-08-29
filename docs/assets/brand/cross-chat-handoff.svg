@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Eggshell carries completed work between independent Codex chats</title>
+  <desc id="desc">A first chat records an API search and a failed test in a local egg file. A second independent chat receives that prior work and continues with the work left. A fixed source-code test reduced total tokens from 1.73 million to 514 thousand.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#201d19" flood-opacity=".12"/>
+    </filter>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffdf8"/>
+      <stop offset="1" stop-color="#eadfca"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" rx="32" fill="#f7f3ea"/>
+  <text x="640" y="54" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="28" font-weight="750" fill="#171512">One project. Independent chats. No blind rediscovery.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="54" y="92" width="440" height="410" rx="24" fill="#171512"/>
+    <rect x="786" y="92" width="440" height="410" rx="24" fill="#171512"/>
+  </g>
+
+  <text x="86" y="132" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="700" letter-spacing="1.5" fill="#b8aa92">CHAT A · INVESTIGATE</text>
+  <text x="86" y="174" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#fffdf8">Investigate an API migration</text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+    <rect x="82" y="204" width="384" height="76" rx="14" fill="#27231e" stroke="#3b352d"/>
+    <text x="102" y="232" fill="#d9cdb8">WORK</text>
+    <text x="102" y="258" fill="#fffdf8">search old_api</text>
+    <circle cx="444" cy="242" r="8" fill="#8fd6a2"/>
+
+    <rect x="82" y="294" width="384" height="76" rx="14" fill="#27231e" stroke="#3b352d"/>
+    <text x="102" y="322" fill="#d9cdb8">OUTCOME</text>
+    <text x="102" y="348" fill="#fffdf8">3 usage sites found</text>
+    <circle cx="444" cy="332" r="8" fill="#8fd6a2"/>
+
+    <rect x="82" y="384" width="384" height="76" rx="14" fill="#27231e" stroke="#3b352d"/>
+    <text x="102" y="412" fill="#d9cdb8">OUTCOME</text>
+    <text x="102" y="438" fill="#fffdf8">full test timed out</text>
+    <circle cx="444" cy="422" r="8" fill="#e9b872"/>
+  </g>
+
+  <path d="M505 296 C540 296 548 296 568 296" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round"/>
+  <path d="M560 288 L570 296 L560 304" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M712 296 C734 296 746 296 775 296" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round"/>
+  <path d="M767 288 L777 296 L767 304" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g filter="url(#shadow)">
+    <path d="M578 233 Q640 195 702 233 L716 336 Q640 381 564 336 Z" fill="url(#shell)" stroke="#171512" stroke-width="3"/>
+    <path d="M568 243 L595 258 L615 238 L641 260 L664 237 L690 258 L710 243" fill="none" stroke="#171512" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+  <text x="640" y="297" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="28" font-weight="800" fill="#171512">.egg</text>
+  <text x="640" y="324" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="13" font-weight="650" fill="#5b5145">LOCAL WORK GRAPH</text>
+
+  <text x="818" y="132" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="700" letter-spacing="1.5" fill="#b8aa92">CHAT B · INDEPENDENT</text>
+  <text x="818" y="174" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#fffdf8">Continue in a new chat</text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">
+    <rect x="814" y="204" width="384" height="118" rx="14" fill="#263128" stroke="#46604b"/>
+    <text x="834" y="232" fill="#9ed8aa">PRIOR WORK SELECTED</text>
+    <text x="834" y="260" fill="#fffdf8">old_api usage sites</text>
+    <text x="834" y="286" fill="#fffdf8">test timeout outcome</text>
+
+    <rect x="814" y="338" width="384" height="122" rx="14" fill="#27231e" stroke="#3b352d"/>
+    <text x="834" y="368" fill="#e9b872">WORK LEFT</text>
+    <text x="834" y="396" fill="#fffdf8">update call sites</text>
+    <text x="834" y="422" fill="#fffdf8">run focused tests</text>
+    <text x="834" y="448" fill="#fffdf8">final answer</text>
+  </g>
+
+  <rect x="54" y="536" width="1172" height="66" rx="18" fill="#fffdf8" stroke="#d8cbb5"/>
+  <text x="84" y="577" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#171512">Fixed source-code test</text>
+  <text x="439" y="578" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="22" font-weight="800" fill="#171512">1.73M → 514k total tokens</text>
+  <rect x="1025" y="550" width="171" height="38" rx="19" fill="#171512"/>
+  <text x="1110" y="576" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="18" font-weight="800" fill="#fffdf8">−70.4%</text>
+</svg>

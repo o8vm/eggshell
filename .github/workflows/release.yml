@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify tag matches Plugin version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          plugin_version="$(jq -r .version plugins/eggshell/.codex-plugin/plugin.json)"
+          test "$tag_version" = "$plugin_version"
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --generate-notes \
+              --title "Eggshell ${GITHUB_REF_NAME#v}" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-aarch64
+          - os: macos-15
+            target: macos-aarch64
+          - os: macos-15-intel
+            target: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+      - name: Build and test
+        run: |
+          lake build eggshell eggshell_tests
+          PLUGIN_DATA=.lake/eggshell-tests-data .lake/build/bin/eggshell_tests
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/package
+          cp .lake/build/bin/eggshell dist/package/eggshell
+          archive="dist/eggshell-${{ matrix.target }}.tar.gz"
+          tar -czf "$archive" -C dist/package eggshell
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$archive" | awk '{print $1}' > "$archive.sha256"
+          else
+            sha256sum "$archive" | awk '{print $1}' > "$archive.sha256"
+          fi
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/eggshell-${{ matrix.target }}.tar.gz" \
+            "dist/eggshell-${{ matrix.target }}.tar.gz.sha256" \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
