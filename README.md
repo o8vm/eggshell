@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/assets/brand/eggshell-primary-horizontal.svg" alt="Eggshell" width="420">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/eggshell-primary-horizontal-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/eggshell-primary-horizontal.svg">
+    <img src="docs/assets/brand/eggshell-primary-horizontal.svg" alt="Eggshell" width="420">
+  </picture>
 </p>
 
 <p align="center">

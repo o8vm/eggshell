@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="assets/brand/eggshell-primary-horizontal.svg" alt="Eggshell" width="520">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/eggshell-primary-horizontal-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/eggshell-primary-horizontal.svg">
+    <img src="assets/brand/eggshell-primary-horizontal.svg" alt="Eggshell" width="520">
+  </picture>
 </p>
 
 # Codex Plugin

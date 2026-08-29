@@ -18,6 +18,7 @@ All canonical assets live in [`docs/assets/brand`](assets/brand/). Use the suppl
 | [Primary stacked — black](assets/brand/eggshell-primary-stacked-black.svg) | Explicit black artwork for light backgrounds and export pipelines. |
 | [Primary stacked — white](assets/brand/eggshell-primary-stacked-white.svg) | Dark backgrounds, presentations, and dark UI. |
 | [Primary horizontal](assets/brand/eggshell-primary-horizontal.svg) | Headers, documentation covers, and wide layouts. |
+| [Primary horizontal — white](assets/brand/eggshell-primary-horizontal-white.svg) | Horizontal lockup for dark backgrounds and dark UI. |
 | [Symbol](assets/brand/eggshell-symbol.svg) | Small square placements where the name appears nearby. |
 | [Wordmark](assets/brand/eggshell-wordmark.svg) | Narrow text-only placement when the symbol is already established. |
 | [Dark app icon](assets/brand/eggshell-app-icon-dark-1024.png) | App icon source and square avatars. |
@@ -29,7 +30,11 @@ All canonical assets live in [`docs/assets/brand`](assets/brand/). Use the suppl
 ## Primary lockup
 
 <p align="center">
-  <img src="assets/brand/eggshell-primary-stacked-black.svg" alt="Eggshell stacked logo" width="360">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/eggshell-primary-stacked-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/eggshell-primary-stacked-black.svg">
+    <img src="assets/brand/eggshell-primary-stacked-black.svg" alt="Eggshell stacked logo" width="360">
+  </picture>
 </p>
 
 Use the stacked lockup when Eggshell is the main subject and the layout has vertical room. Use the horizontal lockup in compact documentation and product headers.
