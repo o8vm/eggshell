@@ -34,8 +34,9 @@ egg init
 
 The installer:
 
-1. creates the personal marketplace source;
-2. installs platform-specific `egg` and `eggshelld` executables;
+1. creates a local marketplace under the Eggshell installation prefix and asks
+   Codex to register it in the active `CODEX_HOME`;
+2. installs one executable plus small `egg` and Plugin launchers;
 3. creates a private CPU MiniLM runtime and preloads the multilingual model;
 4. installs the thin `!egg` launcher and bundled hooks;
 5. asks Codex to add the Plugin;
@@ -48,11 +49,33 @@ staged turn is kept. Initialization refuses to overwrite an existing config.
 
 Codex itself is unchanged. Review and enable the hooks in Codex through `/hooks`.
 
+`EGGSHELL_PREFIX` relocates the complete Eggshell payload. It must be absolute;
+the default is `~/.local`. `CODEX_HOME` remains Codex's own independent home;
+when it is set, the installer registers Eggshell through the Codex CLI in that
+home rather than writing a guessed Codex path directly.
+
+```text
+$EGGSHELL_PREFIX/
+├── bin/egg
+├── libexec/eggshell
+├── plugins/eggshell
+├── share/eggshell/minilm
+├── share/eggshell/plugin
+├── config/eggshell/config.toml
+└── .agents/plugins/marketplace.json
+```
+
+Only Codex's registration and its cached copy of the small Plugin launchers live
+under Codex's configured home. The Lean executable and MiniLM model are not
+copied there. `EGGSHELL_DATA_ROOT` may independently relocate mutable session
+state and embedding vectors.
+
 To build and install from source instead:
 
 ```sh
 lake build eggshell
-.lake/build/bin/eggshell install codex
+EGGSHELL_PREFIX=/absolute/install/root \
+  .lake/build/bin/eggshell install codex
 egg init
 ```
 
@@ -96,7 +119,7 @@ single profile intentionally combines authorities from different roots.
 Configuration is resolved in this order:
 
 ```text
-~/.config/eggshell/config.toml
+$EGGSHELL_PREFIX/config/eggshell/config.toml
 → nearest project .eggshell.toml
 → current-thread override
 → one-turn override
@@ -115,9 +138,9 @@ through that equality, and completed-operation reuse. It does not change
 The installed Plugin uses
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` on CPU by default.
 Its private runtime and model live under
-`~/.local/share/eggshell/minilm`; content-addressed vectors live under the
+`$EGGSHELL_PREFIX/share/eggshell/minilm`; content-addressed vectors live under the
 Eggshell data root. `EGGSHELL_DATA_ROOT` may override that root with an absolute
-path; otherwise it is `~/.local/share/eggshell/plugin`. Hooks, `!egg`, and the
+path; otherwise it is `$EGGSHELL_PREFIX/share/eggshell/plugin`. Hooks, `!egg`, and the
 daemon share this control-plane root, while every session still snapshots the
 `.egg` paths selected from its own cwd and nearest project configuration. These
 vectors are disposable acceleration data, never `.egg` authority. No project
@@ -126,7 +149,8 @@ setting is required.
 Use `semantic_matcher = false` at the root of a global or project config to
 disable semantic retrieval while retaining intrinsic matching. A custom NDJSON
 provider is executable configuration and is therefore accepted only from the
-user-owned global config at `~/.config/eggshell/config.toml`:
+user-owned global config at
+`$EGGSHELL_PREFIX/config/eggshell/config.toml`:
 
 ```toml
 semantic_matcher = ["/path/to/custom-provider", "--model", "/path/to/model"]

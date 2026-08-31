@@ -84,10 +84,44 @@ def hooksManifest : String := r#"{
   }
 }"#
 
-def home : IO System.FilePath := do
-  match ← IO.getEnv "HOME" with
-  | some home => pure (System.FilePath.mk home)
-  | none => throw (IO.userError "HOME is unavailable")
+structure Layout where
+  root : System.FilePath
+  executable : System.FilePath
+  launcher : System.FilePath
+  plugin : System.FilePath
+  marketplace : System.FilePath
+  payloadMarker : System.FilePath
+  bootstrapMarker : System.FilePath
+
+def Layout.at (root : System.FilePath) : Layout := {
+  root
+  executable := root / "libexec" / "eggshell"
+  launcher := root / "bin" / "egg"
+  plugin := root / "plugins" / "eggshell"
+  marketplace := root / ".agents" / "plugins" / "marketplace.json"
+  payloadMarker := root / "share" / "eggshell" / ".eggshell-owner"
+  bootstrapMarker := root / "libexec" / "eggshell.owner"
+}
+
+def installLayout : IO Layout := do
+  pure (Layout.at (← Paths.installRoot))
+
+def commandLauncher : String := r#"#!/bin/sh
+set -eu
+bin_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+EGGSHELL_PREFIX=$(CDPATH= cd "$bin_dir/.." && pwd)
+export EGGSHELL_PREFIX
+exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@"
+"#
+
+def shellQuote (value : String) : String :=
+  "'" ++ value.replace "'" "'\"'\"'" ++ "'"
+
+def pluginLauncher (root : System.FilePath) : String :=
+  "#!/bin/sh\nset -eu\nEGGSHELL_PREFIX=" ++ shellQuote root.toString ++ r#"
+export EGGSHELL_PREFIX
+exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@"
+"#
 
 def copyExecutable (source target : System.FilePath) : IO Unit := do
   if let some parent := target.parent then IO.FS.createDirAll parent
@@ -98,6 +132,17 @@ def copyExecutable (source target : System.FilePath) : IO Unit := do
   -/
   let temporary := System.FilePath.mk (target.toString ++ ".next")
   IO.FS.writeBinFile temporary (← IO.FS.readBinFile source)
+  IO.setAccessRights temporary {
+    user := { read := true, write := true, execution := true }
+    group := { read := true, execution := true }
+    other := { read := true, execution := true }
+  }
+  IO.FS.rename temporary target
+
+def writeExecutable (target : System.FilePath) (contents : String) : IO Unit := do
+  if let some parent := target.parent then IO.FS.createDirAll parent
+  let temporary := System.FilePath.mk (target.toString ++ ".next")
+  IO.FS.writeFile temporary contents
   IO.setAccessRights temporary {
     user := { read := true, write := true, execution := true }
     group := { read := true, execution := true }
@@ -136,8 +181,19 @@ def validateManagedPaths (root launcher : System.FilePath) : IO Unit := do
   if rootExists && !(← ownedPluginRoot root) then
     throw (IO.userError s!"refusing to replace unowned Plugin directory {root}")
   if ← launcher.pathExists then
-    if !rootExists || !(← sameFileContents launcher (root / "bin" / "egg")) then
+    if (← IO.FS.readBinFile launcher) != commandLauncher.toUTF8 then
       throw (IO.userError s!"refusing to replace unowned launcher {launcher}")
+
+def validatePayload (layout : Layout) : IO Unit := do
+  let managedExists ← layout.executable.pathExists
+  if managedExists then
+    let marked ← if ← layout.payloadMarker.pathExists then
+      pure ((← IO.FS.readFile layout.payloadMarker) == ownerMarkerContents)
+      else pure false
+    let runningInstaller ← sameFileContents layout.executable (← IO.appPath)
+    if !marked && !runningInstaller then
+      throw (IO.userError s!"refusing to replace unowned executable {layout.executable}")
+  validateManagedPaths layout.plugin layout.launcher
 
 def marketplaceEntry : Json := Json.mkObj [
   ("name", "eggshell"),
@@ -159,7 +215,7 @@ def marketplaceDocument (path : System.FilePath) : IO Json := do
     | .ok document => pure document
     | .error message => throw (IO.userError s!"{path}: {message}")
   else pure (Json.mkObj [
-    ("name", "personal"),
+    ("name", "eggshell"),
     ("interface", Json.mkObj [("displayName", "Personal")]),
     ("plugins", .arr #[])
   ])
@@ -197,43 +253,98 @@ def codexPlugin (command marketplace : String) : IO Unit := do
   if output.exitCode != 0 then
     throw (IO.userError s!"codex plugin {command} failed: {output.stderr}")
 
+def codexMarketplaceList : IO (List (String × System.FilePath)) := do
+  let output ← IO.Process.output {
+    cmd := "codex"
+    args := #["plugin", "marketplace", "list", "--json"]
+  }
+  if output.exitCode != 0 then
+    throw (IO.userError s!"codex plugin marketplace list failed: {output.stderr}")
+  let document ← match Json.parse output.stdout with
+    | .ok document => pure document
+    | .error message => throw (IO.userError s!"invalid Codex marketplace list: {message}")
+  let entries := match document.getObjValD "marketplaces" with
+    | .arr values => values.toList
+    | _ => []
+  pure (entries.filterMap fun entry =>
+    let name := (entry.getObjVal? "name").toOption.bind fun value =>
+      value.getStr?.toOption
+    let root := (entry.getObjVal? "root").toOption.bind fun value =>
+      value.getStr?.toOption
+    match name, root with
+    | some name, some root => some (name, (System.FilePath.mk root).normalize)
+    | _, _ => none)
+
+def ensureCodexMarketplace (layout : Layout) : IO Unit := do
+  let configured ← codexMarketplaceList
+  match configured.find? (·.1 = "eggshell") with
+  | some (_, root) =>
+      if root != layout.root.normalize then
+        throw (IO.userError s!"Codex marketplace eggshell already points to {root}")
+  | none =>
+      let output ← IO.Process.output {
+        cmd := "codex"
+        args := #["plugin", "marketplace", "add", layout.root.toString, "--json"]
+      }
+      if output.exitCode != 0 then
+        throw (IO.userError s!"codex plugin marketplace add failed: {output.stderr}")
+
+def removeCodexMarketplace (layout : Layout) : IO Unit := do
+  let configured ← codexMarketplaceList
+  if let some (_, root) := configured.find? (·.1 = "eggshell") then
+    if root != layout.root.normalize then
+      throw (IO.userError s!"refusing to remove Codex marketplace eggshell at {root}")
+    let output ← IO.Process.output {
+      cmd := "codex"
+      args := #["plugin", "marketplace", "remove", "eggshell", "--json"]
+    }
+    if output.exitCode != 0 then
+      throw (IO.userError s!"codex plugin marketplace remove failed: {output.stderr}")
+
 def installCodex : IO String := do
-  let userHome ← home
-  let root := userHome / "plugins" / "eggshell"
-  let marketplace := userHome / ".agents" / "plugins" / "marketplace.json"
-  let launcher := userHome / ".local" / "bin" / "egg"
-  validateManagedPaths root launcher
-  validateMarketplace marketplace
+  let layout ← installLayout
+  validatePayload layout
+  validateMarketplace layout.marketplace
   Plugin.Daemon.shutdown
-  MiniLM.install userHome
-  if ← root.pathExists then IO.FS.removeDirAll root
-  IO.FS.createDirAll (root / ".codex-plugin")
-  IO.FS.createDirAll (root / "hooks")
-  IO.FS.writeFile (root / ownerMarkerName) ownerMarkerContents
-  IO.FS.writeFile (root / ".codex-plugin" / "plugin.json") pluginManifest
-  IO.FS.writeFile (root / "hooks" / "hooks.json") hooksManifest
   let executable ← IO.appPath
-  copyExecutable executable (root / "bin" / "egg")
-  copyExecutable executable (root / "bin" / "eggshelld")
-  copyExecutable executable launcher
-  let marketplaceName ← updateMarketplace marketplace true
+  copyExecutable executable layout.executable
+  writeExecutable layout.launcher commandLauncher
+  IO.FS.writeFile layout.bootstrapMarker ownerMarkerContents
+  Persistence.privateFile layout.bootstrapMarker
+  if let some parent := layout.payloadMarker.parent then IO.FS.createDirAll parent
+  IO.FS.writeFile layout.payloadMarker ownerMarkerContents
+  MiniLM.install layout.root
+  if ← layout.plugin.pathExists then IO.FS.removeDirAll layout.plugin
+  IO.FS.createDirAll (layout.plugin / ".codex-plugin")
+  IO.FS.createDirAll (layout.plugin / "hooks")
+  IO.FS.writeFile (layout.plugin / ownerMarkerName) ownerMarkerContents
+  IO.FS.writeFile (layout.plugin / ".codex-plugin" / "plugin.json") pluginManifest
+  IO.FS.writeFile (layout.plugin / "hooks" / "hooks.json") hooksManifest
+  let cachedLauncher := pluginLauncher layout.root
+  writeExecutable (layout.plugin / "bin" / "egg") cachedLauncher
+  writeExecutable (layout.plugin / "bin" / "eggshelld") cachedLauncher
+  let marketplaceName ← updateMarketplace layout.marketplace true
+  ensureCodexMarketplace layout
   try codexPlugin "remove" marketplaceName catch _ => pure ()
   codexPlugin "add" marketplaceName
-  pure s!"installed Eggshell Codex Plugin with CPU MiniLM at {root}; review its hooks with /hooks"
+  pure s!"installed Eggshell at {layout.root} with CPU MiniLM; review its hooks with /hooks"
 
 def uninstallCodex : IO String := do
-  let userHome ← home
-  let root := userHome / "plugins" / "eggshell"
-  let marketplace := userHome / ".agents" / "plugins" / "marketplace.json"
-  let launcher := userHome / ".local" / "bin" / "egg"
-  validateManagedPaths root launcher
-  validateMarketplace marketplace
+  let layout ← installLayout
+  validatePayload layout
+  validateMarketplace layout.marketplace
   Plugin.Daemon.shutdown
-  let marketplaceName ← updateMarketplace marketplace false
+  let marketplaceName ← updateMarketplace layout.marketplace false
   try codexPlugin "remove" marketplaceName catch _ => pure ()
-  if ← root.pathExists then IO.FS.removeDirAll root
-  if ← launcher.pathExists then IO.FS.removeFile launcher
-  pure "uninstalled Eggshell Plugin; .egg authorities and staged data were preserved"
+  removeCodexMarketplace layout
+  if ← layout.plugin.pathExists then IO.FS.removeDirAll layout.plugin
+  if ← layout.launcher.pathExists then IO.FS.removeFile layout.launcher
+  if ← layout.executable.pathExists then IO.FS.removeFile layout.executable
+  let minilm := MiniLM.supportRoot layout.root
+  if ← minilm.pathExists then IO.FS.removeDirAll minilm
+  if ← layout.payloadMarker.pathExists then IO.FS.removeFile layout.payloadMarker
+  if ← layout.bootstrapMarker.pathExists then IO.FS.removeFile layout.bootstrapMarker
+  pure "uninstalled Eggshell Plugin and MiniLM runtime; .egg authorities, config, and staged data were preserved"
 
 def command (installing : Bool) : IO UInt32 := do
   try

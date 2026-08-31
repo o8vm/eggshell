@@ -1,5 +1,7 @@
 module
 
+public import Eggshell.Paths
+
 @[expose] public section
 
 namespace Eggshell.MiniLM
@@ -100,11 +102,11 @@ structure Layout where
   models : System.FilePath
   vectors : System.FilePath
 
-def supportRoot (home : System.FilePath) : System.FilePath :=
-  home / ".local" / "share" / "eggshell" / "minilm"
+def supportRoot (root : System.FilePath) : System.FilePath :=
+  root / "share" / "eggshell" / "minilm"
 
-def layout (home pluginData : System.FilePath) : Layout :=
-  let support := supportRoot home
+def layout (root pluginData : System.FilePath) : Layout :=
+  let support := supportRoot root
   {
     support
     runtime := support / runtimeVersion
@@ -144,9 +146,9 @@ def systemPython : IO String := do
   else throw (IO.userError
     "Python 3 is required once to install the default CPU MiniLM provider")
 
-def install (home : System.FilePath) : IO Unit := do
-  let support := supportRoot home
-  let paths := layout home (support / "preload")
+def install (root : System.FilePath) : IO Unit := do
+  let support := supportRoot root
+  let paths := layout root (support / "preload")
   IO.FS.createDirAll paths.support
   IO.FS.writeFile paths.provider providerSource
   let python ← match ← runtimePython? paths with
@@ -172,8 +174,8 @@ def install (home : System.FilePath) : IO Unit := do
       "--preload"]
     IO.FS.writeFile ready model
 
-def command (home pluginData : System.FilePath) : IO (Option (List String)) := do
-  let paths := layout home pluginData
+def command (root pluginData : System.FilePath) : IO (Option (List String)) := do
+  let paths := layout root pluginData
   let some python ← runtimePython? paths | pure none
   if !(← paths.provider.pathExists) then pure none
   else pure (some [python.toString, paths.provider.toString,

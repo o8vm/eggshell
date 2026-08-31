@@ -77,16 +77,7 @@ and disposable matcher data; project-selected `.egg` authorities remain the
 per-turn paths snapshotted in `PendingTurn`.
 -/
 def dataRoot : IO System.FilePath := do
-  let root ← match ← IO.getEnv "EGGSHELL_DATA_ROOT" with
-    | some root => pure (System.FilePath.mk root)
-    | none =>
-        match ← IO.getEnv "HOME" with
-        | some home => pure (System.FilePath.mk home / ".local" / "share" /
-            "eggshell" / "plugin")
-        | none => throw (IO.userError "EGGSHELL_DATA_ROOT and HOME are unavailable")
-  if !root.isAbsolute then
-    throw (IO.userError "EGGSHELL_DATA_ROOT must be an absolute path")
-  pure root.normalize
+  Paths.dataRoot
 
 def sessionFiles (session : String) : IO SessionFiles := do
   let safe ← match safeSession session with

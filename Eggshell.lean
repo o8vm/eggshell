@@ -12,6 +12,7 @@ public import Eggshell.Persistence
 public import Eggshell.Matcher
 public import Eggshell.Laws
 public import Eggshell.MatcherLaws
+public import Eggshell.Paths
 public import Eggshell.Config
 public import Eggshell.PluginModel
 public import Eggshell.SemanticMatcher

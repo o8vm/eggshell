@@ -1010,8 +1010,8 @@ def testInstallerOwnership : IO Unit := do
   IO.FS.createDirAll (ownedRoot / ".codex-plugin")
   IO.FS.createDirAll (ownedRoot / "bin")
   IO.FS.writeFile (ownedRoot / ".codex-plugin" / "plugin.json") Install.pluginManifest
-  IO.FS.writeBinFile (ownedRoot / "bin" / "egg") "owned-binary".toUTF8
-  IO.FS.writeBinFile ownedLauncher "owned-binary".toUTF8
+  IO.FS.writeFile (ownedRoot / "bin" / "egg") (Install.pluginLauncher testRoot)
+  IO.FS.writeFile ownedLauncher Install.commandLauncher
   Install.validateManagedPaths ownedRoot ownedLauncher
   IO.FS.writeBinFile ownedLauncher "foreign-binary".toUTF8
   try
@@ -1020,6 +1020,30 @@ def testInstallerOwnership : IO Unit := do
   catch error =>
     check (toString error |>.contains "unowned launcher")
       "unowned launcher failed for the wrong reason"
+
+  let installRoot := ((← IO.currentDir) / testRoot / "relocatable prefix's").normalize
+  let layout := Install.Layout.at installRoot
+  check (layout.executable == installRoot / "libexec" / "eggshell" &&
+      layout.launcher == installRoot / "bin" / "egg" &&
+      layout.plugin == installRoot / "plugins" / "eggshell" &&
+      layout.marketplace == installRoot / ".agents" / "plugins" / "marketplace.json" &&
+      MiniLM.supportRoot installRoot == installRoot / "share" / "eggshell" / "minilm")
+    "installation layout escaped its configured prefix"
+  check (Install.commandLauncher.contains "EGGSHELL_PREFIX" &&
+      (Install.pluginLauncher installRoot).contains "EGGSHELL_PREFIX=" &&
+      !(Install.pluginLauncher installRoot).contains "HOME")
+    "installed launchers did not carry the relocatable prefix"
+  Install.writeExecutable layout.executable r#"#!/bin/sh
+printf '%s\n' "$EGGSHELL_PREFIX"
+"#
+  Install.writeExecutable layout.launcher Install.commandLauncher
+  IO.FS.createDirAll (layout.plugin / "bin")
+  Install.writeExecutable (layout.plugin / "bin" / "egg")
+    (Install.pluginLauncher installRoot)
+  for launcher in [layout.launcher, layout.plugin / "bin" / "egg"] do
+    let output ← IO.Process.output { cmd := launcher.toString }
+    check (output.exitCode == 0 && output.stdout.trimAscii == installRoot.toString)
+      "a launcher did not restore its installation prefix"
 
   let marketplace := testRoot / "marketplace.json"
   let foreignEntry := Lean.Json.mkObj [

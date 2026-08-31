@@ -4,9 +4,19 @@ set -eu
 
 repository="o8vm/eggshell"
 release_base="${EGGSHELL_RELEASE_URL:-https://github.com/${repository}/releases/latest/download}"
-install_dir="${EGGSHELL_BIN_DIR:-${HOME}/.local/bin}"
+if [ -n "${EGGSHELL_PREFIX:-}" ]; then
+  eggshell_prefix="${EGGSHELL_PREFIX}"
+else
+  : "${HOME:?EGGSHELL_PREFIX or HOME is required}"
+  eggshell_prefix="${HOME}/.local"
+fi
+case "${eggshell_prefix}" in
+  /*) ;;
+  *) echo "eggshell: EGGSHELL_PREFIX must be an absolute path" >&2; exit 1 ;;
+esac
+install_dir="${eggshell_prefix}/libexec"
 target="${install_dir}/eggshell"
-owner_file="${install_dir}/.eggshell.owner"
+owner_file="${install_dir}/eggshell.owner"
 owner_identity="o8vm/eggshell"
 staged=""
 
@@ -69,10 +79,10 @@ mv -f "${staged}" "${target}"
 staged=""
 printf '%s\n' "${owner_identity}" > "${owner_file}"
 chmod 600 "${owner_file}"
-"${target}" install codex
+EGGSHELL_PREFIX="${eggshell_prefix}" "${target}" install codex
 
 echo "Run 'egg init' once in each project that should keep an Eggshell work graph."
 case ":${PATH}:" in
-  *:"${install_dir}":*) ;;
-  *) echo "Add ${install_dir} to PATH to use egg outside Codex." ;;
+  *:"${eggshell_prefix}/bin":*) ;;
+  *) echo "Add ${eggshell_prefix}/bin to PATH to use egg outside Codex." ;;
 esac

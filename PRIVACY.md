@@ -30,10 +30,13 @@ loopback interface.
   explicit configuration. Missing read paths are not created.
 - Staged turns, recovery state, and daemon coordination live under
   `EGGSHELL_DATA_ROOT`, which defaults to
-  `~/.local/share/eggshell/plugin`. This stable root is shared by Codex hooks
+  `$EGGSHELL_PREFIX/share/eggshell/plugin`. This stable root is shared by Codex hooks
   and the `!egg` shell command. It does not select or relocate any `.egg`
   authority.
-- The MiniLM runtime and model live under `~/.local/share/eggshell/minilm`.
+- The MiniLM runtime and model live under
+  `$EGGSHELL_PREFIX/share/eggshell/minilm`.
+- `EGGSHELL_PREFIX` defaults to `~/.local` and may point to another absolute
+  filesystem when the home directory has limited quota.
 - Disposable embedding vectors live under the Eggshell data root. They are
   a cache and cannot create graph authority.
 

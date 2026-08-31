@@ -1,6 +1,7 @@
 module
 
 public import Eggshell.Matcher
+public import Eggshell.Paths
 
 @[expose] public section
 
@@ -223,7 +224,7 @@ and executable matchers remain user-owned global configuration.
 -/
 def admitProject (config : Config) : Except String Config := do
   if config.semanticMatcher.isSome then
-    throw "project .eggshell.toml cannot execute semantic_matcher; configure custom providers in ~/.config/eggshell/config.toml"
+    throw "project .eggshell.toml cannot execute semantic_matcher; configure custom providers in the user-owned global Eggshell config"
   let root := config.source.parent.getD "." |>.normalize
   for egg in config.eggs do
     if !insideProject root egg.path then
@@ -251,9 +252,7 @@ def nearestProjectConfig (start : System.FilePath) : IO (Option System.FilePath)
   go (start.toString.length + 1) start
 
 def globalPath : IO (Option System.FilePath) := do
-  match ← IO.getEnv "HOME" with
-  | some home => pure (some (System.FilePath.mk home / ".config" / "eggshell" / "config.toml"))
-  | none => pure none
+  pure (some (← Paths.globalConfig))
 
 def merge (base overlay : Config) : Config :=
   let eggs := overlay.eggs ++ base.eggs.filter fun egg =>

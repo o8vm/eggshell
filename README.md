@@ -66,6 +66,24 @@ project config that declares the ignored `.eggs/work.egg` path. The authority
 file itself is created only when the first kept turn is promoted. Review and
 enable the installed hooks through Codex's `/hooks` screen.
 
+The installation is relocatable. This keeps the executable, Plugin source,
+MiniLM runtime/model, default state, and global config off a quota-limited home
+directory:
+
+```sh
+export EGGSHELL_PREFIX=/scratch/$USER/eggshell
+# Keep this export too when Codex itself uses a relocated home:
+# export CODEX_HOME=/scratch/$USER/codex
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/o8vm/eggshell/main/install.sh | sh
+export PATH="$EGGSHELL_PREFIX/bin:$PATH"
+```
+
+The default prefix is `~/.local`. Codex marketplace registration and its small
+Plugin cache remain owned by Codex under its active `CODEX_HOME`; Eggshell does
+not guess that location. Override `EGGSHELL_DATA_ROOT` with another absolute
+path only when mutable Eggshell state should live outside the prefix too.
+
 Then use Codex normally. After a response, Eggshell holds that turn temporarily;
 it is saved when the next prompt starts unless you drop it. Eggshell does not
 require a special prompt, JSON response, footer, or planning step.
@@ -309,7 +327,8 @@ To install a source build:
 
 ```sh
 lake build eggshell
-.lake/build/bin/eggshell install codex
+EGGSHELL_PREFIX=/absolute/install/root \
+  .lake/build/bin/eggshell install codex
 egg init
 ```
 

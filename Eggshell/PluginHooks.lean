@@ -34,9 +34,8 @@ def configFromHook (input : Json) (cwd : System.FilePath) : IO (Option Config.Co
   config?.mapM fun config => do
     if config.semanticMatcherWasSet then pure config
     else
-      let some home ← IO.getEnv "HOME" | pure config
       pure { config with
-        semanticMatcher := ← MiniLM.command (System.FilePath.mk home) (← dataRoot) }
+        semanticMatcher := ← MiniLM.command (← Paths.installRoot) (← dataRoot) }
 
 def pendingSelection (pending : PendingTurn) : Config.Selection :=
   let eggs := pending.read.map fun raw => {
