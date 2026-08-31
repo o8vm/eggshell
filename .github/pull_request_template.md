@@ -9,7 +9,7 @@ Explain the problem and why this is the smallest general solution.
 ## Verification
 
 - [ ] `lake build eggshell eggshell_tests`
-- [ ] `PLUGIN_DATA=.lake/eggshell-tests-data .lake/build/bin/eggshell_tests`
+- [ ] `EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests`
 - [ ] Documentation and privacy behavior are updated when relevant.
 - [ ] Performance claims report total tokens and quality, not tool calls alone.
 

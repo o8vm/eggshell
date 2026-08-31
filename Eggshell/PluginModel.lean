@@ -69,14 +69,24 @@ def safeSession (session : String) : Except String String :=
     pure session
   else throw "Codex session ID contains a path-unsafe character"
 
+/--
+Shared control-plane state must be visible to both Codex hooks and `!egg`.
+`PLUGIN_DATA` is hook-only on some hosts, so using it would split one session
+across two directories. This root stores session state, daemon coordination,
+and disposable matcher data; project-selected `.egg` authorities remain the
+per-turn paths snapshotted in `PendingTurn`.
+-/
 def dataRoot : IO System.FilePath := do
-  match ← IO.getEnv "PLUGIN_DATA" with
-  | some root => pure (System.FilePath.mk root)
-  | none =>
-      match ← IO.getEnv "HOME" with
-      | some home =>
-          pure (System.FilePath.mk home / ".local" / "share" / "eggshell" / "plugin")
-      | none => throw (IO.userError "PLUGIN_DATA and HOME are unavailable")
+  let root ← match ← IO.getEnv "EGGSHELL_DATA_ROOT" with
+    | some root => pure (System.FilePath.mk root)
+    | none =>
+        match ← IO.getEnv "HOME" with
+        | some home => pure (System.FilePath.mk home / ".local" / "share" /
+            "eggshell" / "plugin")
+        | none => throw (IO.userError "EGGSHELL_DATA_ROOT and HOME are unavailable")
+  if !root.isAbsolute then
+    throw (IO.userError "EGGSHELL_DATA_ROOT must be an absolute path")
+  pure root.normalize
 
 def sessionFiles (session : String) : IO SessionFiles := do
   let safe ← match safeSession session with

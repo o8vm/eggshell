@@ -1070,6 +1070,40 @@ def testHooks : IO Unit := do
   let _ ← dispatchHook (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-one"),
     ("turn_id", "turn-one"), ("cwd", cwd), ("prompt", "Trace pvclock into wallclock")])
+  let parentFiles ← sessionFiles "session-one"
+  let some parentPending ← (readJson? parentFiles.pending : IO (Option PendingTurn)) |
+    throw (IO.userError "hook did not stage the parent-project turn")
+  check (parentPending.write == some hookEgg.toString)
+    "the parent session did not snapshot its project-local .egg"
+  let cliPending ← IO.Process.output {
+    cmd := launcher.toString
+    cwd := some hookRoot
+    env := #[
+      ("CODEX_THREAD_ID", some "session-one"),
+      ("PLUGIN_DATA", some (hookRoot / "host-only-plugin-data").toString)
+    ]
+  }
+  check (cliPending.exitCode == 0 && cliPending.stdout.contains "pending:active:turn-one")
+    "hook-only PLUGIN_DATA split staged state from the !egg CLI"
+
+  let nestedRoot := hookRoot / "nested-project"
+  prepareTestProject nestedRoot
+  let nestedCwd := nestedRoot.toString
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "SessionStart"), ("session_id", "session-nested"),
+    ("cwd", nestedCwd)])
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-nested"),
+    ("turn_id", "turn-nested"), ("cwd", nestedCwd),
+    ("prompt", "Inspect the nested project")])
+  let nestedFiles ← sessionFiles "session-nested"
+  let some nestedPending ← (readJson? nestedFiles.pending : IO (Option PendingTurn)) |
+    throw (IO.userError "hook did not stage the nested-project turn")
+  let nestedEgg := nestedRoot / "work.egg"
+  check (nestedPending.write == some nestedEgg.toString &&
+      nestedPending.write != parentPending.write)
+    "shared control state collapsed distinct nested-project .egg selections"
+  removeIfExists nestedFiles.pending
   check (!(← hookEgg.pathExists))
     "a read path was created before the first staged turn was promoted"
   let _ ← dispatchHook (← hookJson "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-one\",\"turn_id\":\"turn-one\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-one\",\"tool_input\":{\"command\":\"rg update_vsyscall kernel/time\"},\"tool_response\":{\"output\":\"kernel/time/vsyscall.c update_vsyscall\"}}")
@@ -1262,12 +1296,15 @@ def semanticProviderFixture : IO UInt32 := do
 
 def runTests : IO UInt32 := do
   try
-    let some pluginData ← IO.getEnv "PLUGIN_DATA" |
-      throw (IO.userError "tests require an isolated PLUGIN_DATA")
+    let some dataRoot ← IO.getEnv "EGGSHELL_DATA_ROOT" |
+      throw (IO.userError "tests require an isolated EGGSHELL_DATA_ROOT")
     let home := (← IO.getEnv "HOME").getD ""
-    check (System.FilePath.mk pluginData != System.FilePath.mk home /
+    let root := System.FilePath.mk dataRoot
+    check (root.isAbsolute)
+      "tests require an absolute EGGSHELL_DATA_ROOT"
+    check (root.normalize != System.FilePath.mk home /
         ".local" / "share" / "eggshell" / "plugin")
-      "tests refuse to use the default Plugin authority directory"
+      "tests refuse to use the default Eggshell data directory"
     clean
     testNativeWorkUnits
     testPersistenceDag

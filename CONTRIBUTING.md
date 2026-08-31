@@ -11,11 +11,12 @@ Install the toolchain pinned in `lean-toolchain`, then run:
 
 ```sh
 lake build eggshell eggshell_tests
-PLUGIN_DATA=.lake/eggshell-tests-data .lake/build/bin/eggshell_tests
+EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" \
+  .lake/build/bin/eggshell_tests
 ```
 
-Tests must use an isolated `PLUGIN_DATA`; they refuse the normal user data
-directory. Keep public claims tied to completed, reproducible measurements.
+Tests must use an isolated absolute `EGGSHELL_DATA_ROOT`; they refuse the normal
+user data directory. Keep public claims tied to completed, reproducible measurements.
 For performance work, total tokens mean input plus reasoning output plus final
 output. Quality non-regression and `.egg` growth are constraints; tool count and
 elapsed time are diagnostics.

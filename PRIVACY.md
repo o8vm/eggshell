@@ -28,10 +28,13 @@ loopback interface.
 - Project `.egg` authorities are restricted to regular, non-symlinked paths
   below that project. Shared paths may be named only by user-owned global or
   explicit configuration. Missing read paths are not created.
-- Staged turns and recovery state live under `PLUGIN_DATA`, or under
-  `~/.local/share/eggshell/plugin` when Codex does not supply that directory.
+- Staged turns, recovery state, and daemon coordination live under
+  `EGGSHELL_DATA_ROOT`, which defaults to
+  `~/.local/share/eggshell/plugin`. This stable root is shared by Codex hooks
+  and the `!egg` shell command. It does not select or relocate any `.egg`
+  authority.
 - The MiniLM runtime and model live under `~/.local/share/eggshell/minilm`.
-- Disposable embedding vectors live under the Plugin data directory. They are
+- Disposable embedding vectors live under the Eggshell data root. They are
   a cache and cannot create graph authority.
 
 Created `.egg`, staged-turn, and session-state files use owner-only `0600`

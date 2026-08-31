@@ -115,8 +115,12 @@ through that equality, and completed-operation reuse. It does not change
 The installed Plugin uses
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` on CPU by default.
 Its private runtime and model live under
-`~/.local/share/eggshell/minilm`; content-addressed vectors live under Plugin
-data. They are disposable acceleration data, never `.egg` authority. No project
+`~/.local/share/eggshell/minilm`; content-addressed vectors live under the
+Eggshell data root. `EGGSHELL_DATA_ROOT` may override that root with an absolute
+path; otherwise it is `~/.local/share/eggshell/plugin`. Hooks, `!egg`, and the
+daemon share this control-plane root, while every session still snapshots the
+`.egg` paths selected from its own cwd and nearest project configuration. These
+vectors are disposable acceleration data, never `.egg` authority. No project
 setting is required.
 
 Use `semantic_matcher = false` at the root of a global or project config to

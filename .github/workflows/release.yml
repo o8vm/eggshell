@@ -55,7 +55,7 @@ jobs:
       - name: Build and test
         run: |
           lake build eggshell eggshell_tests
-          PLUGIN_DATA=.lake/eggshell-tests-data .lake/build/bin/eggshell_tests
+          EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
       - name: Package
         shell: bash
         run: |

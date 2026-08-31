@@ -301,7 +301,8 @@ Source builds use the toolchain pinned in [`lean-toolchain`](lean-toolchain).
 
 ```sh
 lake build eggshell eggshell_tests
-PLUGIN_DATA=.lake/eggshell-tests-data .lake/build/bin/eggshell_tests
+EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" \
+  .lake/build/bin/eggshell_tests
 ```
 
 To install a source build:
