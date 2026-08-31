@@ -85,7 +85,7 @@ def resolveDefault (files : SessionFiles) (state : ThreadState)
         | some target =>
             let promotion ← promote pending (System.FilePath.mk target)
             pure (addDeliveredGraphs state
-              (promotion.outcomeRelations.map ("g:" ++ relationKey ·)))
+              (promotion.outcomeRelations.map nativeHistoryKey))
       removeIfExists files.pending
       pure nextState
 

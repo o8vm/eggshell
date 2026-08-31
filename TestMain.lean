@@ -389,6 +389,13 @@ def testLocalUnion : IO Unit := do
   let repeatedContext ← automaticHandoff selection query handoff.deliveredGraphs false
   check repeatedContext.isNone
     "an already delivered Outcome subtree was retransmitted as context"
+  let nativeHistory := promotion.outcomeRelations.map nativeHistoryKey
+  let ownContext ← automaticHandoff selection query nativeHistory false
+  check ownContext.isNone
+    "a promoted Outcome already present in native history was echoed through a projection"
+  let ownRewrite ← automaticHandoff selection rewritten nativeHistory false
+  check ownRewrite.isNone
+    "a reworded projection echoed an Outcome already present in native history"
   check (handoff.deliveredGraphs.all fun key =>
       key.startsWith "g:" || key.startsWith "d:")
     "delivery state did not distinguish graph transport from graph control"
@@ -1111,6 +1118,18 @@ def testHooks : IO Unit := do
   let _ ← dispatchHook (← hookJson "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"session-one\"}")
   check (← hookEgg.pathExists)
     "the first kept turn did not create its write authority"
+  let some stateOne ← (readJson? parentFiles.state : IO (Option ThreadState)) |
+    throw (IO.userError "promotion lost the first session's delivery state")
+  check (!stateOne.deliveredGraphs.isEmpty &&
+      stateOne.deliveredGraphs.all (·.startsWith "h:"))
+    "promotion did not mark its complete Outcome owners as native history"
+  let ownFollowup ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-one"),
+    ("turn_id", "turn-one-followup"), ("cwd", cwd),
+    ("prompt", "Trace pvclock into wallclock")])
+  check (!ownFollowup.contains "additionalContext")
+    "the same session echoed its newly promoted graph before compaction"
+  removeIfExists parentFiles.pending
   let _ ← dispatchHook (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-two"), ("cwd", cwd)])
   let _ ← dispatchHook (Lean.Json.mkObj [

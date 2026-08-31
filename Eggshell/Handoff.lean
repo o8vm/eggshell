@@ -183,6 +183,18 @@ def graphKey (selected : Selected) : String :=
   "g:" ++ relationKey selected.matched.edge.relation ++ ":" ++
     relationKey selected.handoffOutcome
 
+/--
+An Outcome owner produced by this Codex session is already present in native
+history in full.  Unlike `graphKey`, this key intentionally covers every future
+projection of that owner until compaction clears the session delivery state.
+-/
+def nativeHistoryKey (relation : Value) : String :=
+  "h:" ++ relationKey relation
+
+def graphVisibleInHistory (delivered : List String) (selected : Selected) : Bool :=
+  delivered.contains (nativeHistoryKey selected.matched.edge.relation) ||
+    delivered.contains (graphKey selected)
+
 def selectedMatches (discovery : Matcher.Discovery) (extraction : Extraction) :
     List Selected :=
   let completed := extraction.selection.completedEdges.map (·.relation)
@@ -395,7 +407,7 @@ theorem graphKey_ne_deliveryKey (selected : Selected) :
   simp [graphKey, deliveryKey] at first
 
 def novelGraphRoot (delivered : List String) (selected : Selected) : Bool :=
-  !delivered.contains (graphKey selected)
+  !graphVisibleInHistory delivered selected
 
 def novelConnection (delivered : List String) (selected : Selected) : Bool :=
   !delivered.contains (deliveryKey selected)
@@ -434,7 +446,14 @@ theorem Selected.advisory_never_checkpoints
 theorem delivered_graph_root_is_not_novel {delivered : List String}
     {selected : Selected} (present : graphKey selected ∈ delivered) :
     novelGraphRoot delivered selected = false := by
-  simp [novelGraphRoot, present]
+  simp [novelGraphRoot, graphVisibleInHistory, present]
+
+/-- A turn already visible in native history cannot be echoed through another projection. -/
+theorem native_history_owner_is_not_novel {delivered : List String}
+    {selected : Selected}
+    (present : nativeHistoryKey selected.matched.edge.relation ∈ delivered) :
+    novelGraphRoot delivered selected = false := by
+  simp [novelGraphRoot, graphVisibleInHistory, present]
 
 /-- The same grounded projection cannot trigger a second judgment in one context epoch. -/
 theorem delivered_connection_is_not_novel {delivered : List String}
@@ -476,7 +495,7 @@ def renderAutomatic (staged : List Value) (budget : Nat) (current : String)
   without turning every internal child into an independent replan event.
   -/
   let visibleWithoutTransport := fun selected : Selected =>
-    deliveredGraphs.contains (graphKey selected) ||
+    graphVisibleInHistory deliveredGraphs selected ||
       !selected.needsTransport staged stagedVisible
   let transportable := selectedAll.filter fun selected =>
     novelGraphRoot deliveredGraphs selected &&
@@ -525,10 +544,11 @@ def renderAutomatic (staged : List Value) (budget : Nat) (current : String)
     let deliveredNow :=
       (fittedKeys ++ newlyCovered.map deliveryKey).eraseDups
     /-
-    `g:` records bytes present in native history. `d:` is added only when
-    PreToolUse actually erases completed root-demand Work. Prompt transport
-    therefore does not silently consume later control, while advisory graph
-    progress can never cancel native Work.
+    `h:` records a complete owner already present in this session's native
+    history. `g:` records one transported projection from another session.
+    `d:` is added only when PreToolUse actually erases completed root-demand
+    Work. Prompt transport therefore does not silently consume later control,
+    while advisory graph progress can never cancel native Work.
     -/
     let blocksCurrent := !newlyCovered.isEmpty
     if deliveredNow.isEmpty then none else

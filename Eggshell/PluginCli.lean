@@ -169,7 +169,7 @@ def control (arguments : List String) : IO String := do
         let target ← chooseTarget config pending requested
         let promotion ← promote pending target
         state := addDeliveredGraphs state
-          (promotion.outcomeRelations.map ("g:" ++ relationKey ·))
+          (promotion.outcomeRelations.map nativeHistoryKey)
         writeJson files.state state
         removeIfExists files.pending
         pure s!"egg kept {pending.turnId.take 8} → {target}"
