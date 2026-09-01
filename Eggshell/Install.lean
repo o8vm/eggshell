@@ -46,7 +46,7 @@ def initCommand : IO UInt32 := do
 
 def pluginManifest : String := r##"{
   "name": "eggshell",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reduce repeated Codex work with a persistent, user-controlled work graph",
   "author": {
     "name": "o8vm",
