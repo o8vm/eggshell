@@ -88,6 +88,11 @@ Then use Codex normally. After a response, Eggshell holds that turn temporarily;
 it is saved when the next prompt starts unless you drop it. Eggshell does not
 require a special prompt, JSON response, footer, or planning step.
 
+If a connection ends a turn before the final response, Eggshell preserves every
+terminal tool outcome it already observed and keeps the parent work open. A
+reconnect does not require `!egg drop`; operations without a terminal result are
+not invented or stored.
+
 ```text
 !egg              show the active profile and staged turn
 !egg graph         show exactly what Eggshell sent to Codex

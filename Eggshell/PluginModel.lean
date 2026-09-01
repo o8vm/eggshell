@@ -252,6 +252,18 @@ def compileOperationGraph (pending : PendingTurn) : Except String (List Value ×
     (.semantic task :: (works ++ [remainder]).map Ref.semantic)
   pure (facts.map (·.2), all)
 
+/--
+An unresolved native occurrence and a missing final message cannot affect the
+observed operation graph.  Recovery may therefore retain exactly the terminal
+tool outcomes while leaving the parent Work open.
+-/
+theorem compileOperationGraph_ignores_unobserved (pending : PendingTurn)
+    (inFlight : List ToolEvent) (finalMessage : Option String) :
+    compileOperationGraph {
+      pending with inFlight := inFlight, finalMessage := finalMessage
+    } = compileOperationGraph pending := by
+  rfl
+
 /-- The active turn joins the same positive graph shape later promoted to `.egg`. -/
 def stagedGraphValues (pending : PendingTurn) : Except String (List Value) := do
   let (outcomes, all) ← compileOperationGraph pending
@@ -265,29 +277,37 @@ structure CompiledTurn (source : Graph) where
 
 def compile (graph : Graph) (pending : PendingTurn) (target : String) :
     Except String (CompiledTurn graph) := do
-  let finalMessage ← match pending.finalMessage with
-    | some message => pure message
-    | none => throw "cannot promote an unsealed turn"
   let session := Value.text pending.sessionId
   let turn := Value.text pending.turnId
   let cwd := Value.text pending.cwd
   let task := Value.text pending.prompt
-  let result := Value.text finalMessage
   let (outcomeRelations, all) ← compileOperationGraph pending
-  let turnOccurrence ← relation? .occurrence [
-    .semantic task, .semantic result, .exact session, .exact turn, .exact cwd]
-  let parentOutcome ← relation? .outcome [
-    .semantic task, .semantic result, .exact turnOccurrence]
   let targetValue := Value.text target
-  let receipt ← relation? .receipt [
-    .exact session, .exact turn, .exact task, .exact result,
-    .exact parentOutcome, .exact all, .exact targetValue]
+  let (values, promotedOutcomes) ← match pending.finalMessage with
+    | some finalMessage =>
+        let result := Value.text finalMessage
+        let turnOccurrence ← relation? .occurrence [
+          .semantic task, .semantic result, .exact session, .exact turn, .exact cwd]
+        let parentOutcome ← relation? .outcome [
+          .semantic task, .semantic result, .exact turnOccurrence]
+        let receipt ← relation? .receipt [
+          .exact session, .exact turn, .exact task, .exact result,
+          .exact parentOutcome, .exact all, .exact targetValue]
+        pure
+          ((outcomeRelations ++ [all, parentOutcome, receipt]).eraseDups,
+            outcomeRelations ++ [parentOutcome])
+    | none =>
+        if pending.tools.isEmpty then
+          throw "cannot promote an interrupted turn without observed outcomes"
+        let receipt ← relation? .receipt [
+          .exact session, .exact turn, .exact task, .exact cwd,
+          .exact all, .exact targetValue, .exact (.text "interrupted before final response")]
+        pure ((outcomeRelations ++ [all, receipt]).eraseDups, outcomeRelations)
   /-
   Only authoritative relation roots are stored. Their structural Values contain
   every Atom and occurrence, so duplicating that closure as top-level records
   changes no semantics and only inflates `.egg`.
   -/
-  let values := (outcomeRelations ++ [all, parentOutcome, receipt]).eraseDups
   match accepted : (Transaction.begin graph).stageValues? values with
   | none => throw "turn compiler produced an invalid Value"
   | some transaction =>
@@ -295,7 +315,7 @@ def compile (graph : Graph) (pending : PendingTurn) (target : String) :
       pure {
         transaction
         promotion := {
-          outcomeRelations := outcomeRelations ++ [parentOutcome]
+          outcomeRelations := promotedOutcomes
         }
         transaction_authority := source.1
         transaction_revision := source.2

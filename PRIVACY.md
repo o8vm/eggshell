@@ -11,9 +11,11 @@ identifiers, and the working directory. The stable hook API does not expose
 hidden chain-of-thought. Eggshell does not scrape Codex's private transcript.
 
 The active turn is staged under Codex's Plugin data directory. A sealed turn is
-written only to the single `.egg` selected by the current profile. Read-only and
-off profiles are available, and `!egg drop` discards the staged turn before it
-becomes authority.
+written only to the single `.egg` selected by the current profile. If a turn is
+interrupted before its final response, only terminal tool outcomes already
+observed by hooks and an open remainder may be promoted; no parent result is
+fabricated. Read-only and off profiles are available, and `!egg drop` discards
+the staged turn before it becomes authority.
 
 ## Network access
 

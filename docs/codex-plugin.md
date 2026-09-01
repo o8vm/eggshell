@@ -380,13 +380,13 @@ Pending data is not a kernel Value or `.egg` frame. Promotion deterministically 
 
 | Hook | Eggshell action |
 | --- | --- |
-| `SessionStart` | register the thread, load configuration, report recovery state |
-| `UserPromptSubmit` | resolve previous pending; snapshot selection; Extract; return `additionalContext` |
+| `SessionStart` | register the thread, load configuration, report sealed recovery state |
+| `UserPromptSubmit` | preserve observed work from an interrupted prior turn; resolve sealed pending; snapshot selection; Extract; return `additionalContext` |
 | `PreToolUse` | remember the occurrence for result correlation; reuse an applicable prior outcome or keep the work open |
 | `PostToolUse` | stage the terminal tool event Codex exposed; when its visible input first connects new prior work, inject that subtree before the next action |
 | `PostCompact` | clear native-visible and delivered roots so relevant graph can be restored after native history compaction |
 | `Stop` | stage the final assistant message and seal without commit |
-| `SessionEnd` | discard an active partial turn or resolve a normally sealed turn |
+| `SessionEnd` | preserve observed work from an active partial turn or resolve a normally sealed turn |
 
 The stable hook API does not expose hidden chain-of-thought, intermediate assistant messages, or every hosted/specialized tool. Eggshell does not parse Codex's private transcript or claim to have observed events that bypass hooks.
 
@@ -398,9 +398,16 @@ The stable hook API does not expose hidden chain-of-thought, intermediate assist
   and Codex continues without that handoff.
 - A proposed operation with no terminal hook contributes no native Outcome and
   is discarded from correlation state at `Stop`.
-- An active unsealed turn is discarded at normal session end.
-- A sealed turn left by abnormal termination remains in a non-authoritative recovery spool.
-- Recovery never silently promotes data. Inspect it, then explicitly keep or drop it.
+- An interrupted turn retains terminal tool outcomes as `Outcome` edges under
+  its existing write policy, keeps its parent Work open, and discards unresolved
+  operation reservations. If it observed no terminal outcome, there is nothing
+  to promote.
+- A repeated hook for the same turn resumes its existing stage. A new turn first
+  resolves the interrupted stage, so connection recovery never requires
+  `!egg drop`.
+- A sealed turn left by abnormal termination remains staged long enough for an
+  explicit keep, redirect, or drop; an ordinary next prompt applies its
+  snapshotted default policy.
 - One turn can modify only one `.egg`, so promotion is atomic at the authority boundary.
 
 ## Uninstall and retained data

@@ -77,7 +77,19 @@ theorem recordHandoffWithin_is_per_delta (limit : Nat) (state : ThreadState)
 def resolveDefault (files : SessionFiles) (state : ThreadState)
     (pending : PendingTurn) : IO ThreadState := do
   match pending.finalMessage with
-  | none => throw (IO.userError "unfinished staged turn; run !egg drop")
+  | none =>
+      /-
+      A disconnected turn has no parent result, but every terminal PostToolUse
+      already recorded a real Work→Outcome edge. Preserve those observations
+      with their open remainder; unresolved in-flight calls never enter the
+      compiler. Recovered Outcomes are deliberately not marked delivered,
+      because native history may have disappeared with the connection.
+      -/
+      if !pending.tools.isEmpty then
+        if let some target := pending.write then
+          let _ ← promote pending (System.FilePath.mk target)
+      removeIfExists files.pending
+      pure state
   | some _ =>
       let nextState ← match pending.write with
         | none => pure state
@@ -112,7 +124,7 @@ def sessionStart (input : Json) : IO String := do
       | some pending =>
           if pending.finalMessage.isSome then
             systemMessage "Eggshell recovered a sealed staged turn; use !egg keep or !egg drop."
-          else systemMessage "Eggshell recovered an unfinished turn; use !egg drop."
+          else emptyHook
       | none => emptyHook
 
 def userPromptSubmit (input : Json) : IO String := do
@@ -126,8 +138,12 @@ def userPromptSubmit (input : Json) : IO String := do
     let mut state := (← (readJson? files.state : IO (Option ThreadState))).getD
       (defaultState config)
     if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
-      if pending.finalMessage.isNone then
-        return blockPrompt "Eggshell recovered an unfinished staged turn. Run !egg drop."
+      /-
+      A repeated hook for the same turn is idempotent. A distinct turn proves
+      that the previous one can no longer receive a final response here, so its
+      observed outcomes are recovered before extracting the new handoff.
+      -/
+      if pending.turnId == turn then return emptyHook
       state ← resolveDefault files state pending
     let profileName := state.nextProfile.getD state.profile
     let selection ← match Config.resolve config profileName with

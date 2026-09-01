@@ -111,7 +111,7 @@ set -eu
 bin_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
 EGGSHELL_PREFIX=$(CDPATH= cd "$bin_dir/.." && pwd)
 export EGGSHELL_PREFIX
-exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@"
+exec "$EGGSHELL_PREFIX/libexec/eggshell" egg "$@"
 "#
 
 def shellQuote (value : String) : String :=
@@ -120,7 +120,10 @@ def shellQuote (value : String) : String :=
 def pluginLauncher (root : System.FilePath) : String :=
   "#!/bin/sh\nset -eu\nEGGSHELL_PREFIX=" ++ shellQuote root.toString ++ r#"
 export EGGSHELL_PREFIX
-exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@"
+case "${1-}" in
+  codex-hook|codex-daemon) exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@" ;;
+  *) exec "$EGGSHELL_PREFIX/libexec/eggshell" egg "$@" ;;
+esac
 "#
 
 def copyExecutable (source target : System.FilePath) : IO Unit := do

@@ -1031,19 +1031,45 @@ def testInstallerOwnership : IO Unit := do
     "installation layout escaped its configured prefix"
   check (Install.commandLauncher.contains "EGGSHELL_PREFIX" &&
       (Install.pluginLauncher installRoot).contains "EGGSHELL_PREFIX=" &&
-      !(Install.pluginLauncher installRoot).contains "HOME")
+      !(Install.pluginLauncher installRoot).contains "HOME" &&
+      Install.commandLauncher.contains " egg \"$@\"" &&
+      (Install.pluginLauncher installRoot).contains "codex-hook|codex-daemon")
     "installed launchers did not carry the relocatable prefix"
   Install.writeExecutable layout.executable r#"#!/bin/sh
-printf '%s\n' "$EGGSHELL_PREFIX"
+printf '%s|%s\n' "$EGGSHELL_PREFIX" "$*"
 "#
   Install.writeExecutable layout.launcher Install.commandLauncher
   IO.FS.createDirAll (layout.plugin / "bin")
   Install.writeExecutable (layout.plugin / "bin" / "egg")
     (Install.pluginLauncher installRoot)
+  Install.writeExecutable (layout.plugin / "bin" / "eggshelld")
+    (Install.pluginLauncher installRoot)
   for launcher in [layout.launcher, layout.plugin / "bin" / "egg"] do
     let output ← IO.Process.output { cmd := launcher.toString }
-    check (output.exitCode == 0 && output.stdout.trimAscii == installRoot.toString)
-      "a launcher did not restore its installation prefix"
+    check (output.exitCode == 0 &&
+        output.stdout.trimAscii == installRoot.toString ++ "|egg")
+      "a user launcher did not restore its prefix and egg subcommand"
+  let control ← IO.Process.output {
+    cmd := (layout.plugin / "bin" / "egg").toString
+    args := #["inspect"]
+  }
+  check (control.exitCode == 0 &&
+      control.stdout.trimAscii == installRoot.toString ++ "|egg inspect")
+    "the Plugin launcher lost a user control argument"
+  let hook ← IO.Process.output {
+    cmd := (layout.plugin / "bin" / "egg").toString
+    args := #["codex-hook"]
+  }
+  check (hook.exitCode == 0 &&
+      hook.stdout.trimAscii == installRoot.toString ++ "|codex-hook")
+    "the Plugin launcher rewrote the internal hook command"
+  let daemon ← IO.Process.output {
+    cmd := (layout.plugin / "bin" / "eggshelld").toString
+    args := #["codex-daemon"]
+  }
+  check (daemon.exitCode == 0 &&
+      daemon.stdout.trimAscii == installRoot.toString ++ "|codex-daemon")
+    "the relocatable daemon launcher lost its internal command"
 
   let marketplace := testRoot / "marketplace.json"
   let foreignEntry := Lean.Json.mkObj [
@@ -1264,6 +1290,97 @@ def testHooks : IO Unit := do
     "promotion lost observed Work, Outcome, or parent result"
   check (!failSoftNodes.contains (.text "printf unobserved_hook_result_91ce"))
     "an unresolved PreToolUse reservation fabricated persistent Work"
+
+  /-
+  A lost connection can omit both Stop and SessionEnd. The next distinct turn
+  must preserve terminal tool outcomes without fabricating a parent result or
+  asking the user to clean up Eggshell's staging state.
+  -/
+  let interruptedSession := "session-interrupted"
+  let interruptedTurn := "turn-interrupted"
+  let interruptedPrompt := "Inspect the interrupted probe"
+  let interruptedTool : ToolEvent := {
+    name := "shell"
+    useId := "interrupted-observed"
+    input := r#"{"command":"printf interrupted_observed_62d1"}"#
+    response := r#"{"output":"interrupted_observed_62d1"}"#
+  }
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "SessionStart"), ("session_id", interruptedSession),
+    ("cwd", cwd)])
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", interruptedSession),
+    ("turn_id", interruptedTurn), ("cwd", cwd), ("prompt", interruptedPrompt)])
+  let _ ← dispatchHook (← hookJson
+    "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-interrupted\",\"turn_id\":\"turn-interrupted\",\"tool_name\":\"shell\",\"tool_use_id\":\"interrupted-observed\",\"tool_input\":{\"command\":\"printf interrupted_observed_62d1\"},\"tool_response\":{\"output\":\"interrupted_observed_62d1\"}}")
+  let _ ← dispatchHook (← hookJson
+    "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-interrupted\",\"turn_id\":\"turn-interrupted\",\"tool_name\":\"shell\",\"tool_use_id\":\"interrupted-unobserved\",\"tool_input\":{\"command\":\"printf interrupted_unobserved_b87e\"}}")
+  let interruptedFiles ← sessionFiles interruptedSession
+  let reconnect ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "SessionStart"), ("session_id", interruptedSession),
+    ("cwd", cwd)])
+  check (!reconnect.contains "drop")
+    "connection recovery required manual deletion of staged work"
+  let replay ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", interruptedSession),
+    ("turn_id", interruptedTurn), ("cwd", cwd), ("prompt", interruptedPrompt)])
+  check (replay == emptyHook)
+    "a repeated hook for the active turn was not idempotent"
+  let some replayedPending ←
+      (readJson? interruptedFiles.pending : IO (Option PendingTurn)) |
+    throw (IO.userError "same-turn reconnect lost its staged observations")
+  check (replayedPending.tools.length = 1 && replayedPending.inFlight.length = 1)
+    "same-turn reconnect changed staged native occurrences"
+  let continued ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", interruptedSession),
+    ("turn_id", "turn-after-interruption"), ("cwd", cwd),
+    ("prompt", "Continue from the interrupted probe")])
+  check (!continued.contains "\"decision\":\"block\"")
+    "a recovered partial turn blocked subsequent work"
+  let some continuedPending ←
+      (readJson? interruptedFiles.pending : IO (Option PendingTurn)) |
+    throw (IO.userError "recovery did not start the next staged turn")
+  check (continuedPending.turnId = "turn-after-interruption")
+    "recovery did not replace the interrupted stage with the next turn"
+  let recoveredGraph ← Persistence.load hookEgg
+  let recoveredOutcomes := recoveredGraph.values.filterMap OutcomeEdge.fromValue?
+  let recoveredWork := Value.text (canonicalToolWork interruptedTool)
+  let recoveredResult := Value.text (canonicalJson interruptedTool.response)
+  check (recoveredOutcomes.any fun edge =>
+      edge.work == recoveredWork && edge.outcome == recoveredResult)
+    "connection recovery lost an observed native Outcome"
+  check (!recoveredOutcomes.any fun edge => edge.work == .text interruptedPrompt)
+    "connection recovery fabricated a final parent Outcome"
+  let recoveredAll := recoveredGraph.values.filterMap AllEdge.fromValue?
+  check (recoveredAll.any fun edge =>
+      edge.parent == .text interruptedPrompt &&
+      edge.children.contains recoveredWork &&
+      edge.children.contains (HandoffRemainder.value interruptedPrompt))
+    "connection recovery did not leave the interrupted parent Work open"
+  check (!(recoveredGraph.values.flatMap Value.nodes).contains
+      (.text "printf interrupted_unobserved_b87e"))
+    "connection recovery promoted an operation without a terminal result"
+
+  /- A turn interrupted before any terminal tool result has no work to retain. -/
+  let emptyRecoverySession := "session-empty-interruption"
+  let beforeEmptyRecovery := recoveredGraph.revision
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "SessionStart"), ("session_id", emptyRecoverySession),
+    ("cwd", cwd)])
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", emptyRecoverySession),
+    ("turn_id", "empty-interrupted"), ("cwd", cwd),
+    ("prompt", "Start but do not finish a probe")])
+  let _ ← dispatchHook (← hookJson
+    "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-empty-interruption\",\"turn_id\":\"empty-interrupted\",\"tool_name\":\"shell\",\"tool_use_id\":\"empty-unobserved\",\"tool_input\":{\"command\":\"printf empty_unobserved_41ca\"}}")
+  let resumedEmpty ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", emptyRecoverySession),
+    ("turn_id", "after-empty-interruption"), ("cwd", cwd),
+    ("prompt", "Continue without prior observations")])
+  check (!resumedEmpty.contains "\"decision\":\"block\"")
+    "an empty interrupted turn blocked subsequent work"
+  check ((← Persistence.load hookEgg).revision = beforeEmptyRecovery)
+    "an interrupted turn without observed outcomes grew the authority"
   IO.println "PASS native history delta, independent session handoff, compaction restore"
 
 def waitHook (task : Task (Except IO.Error String)) : IO String := do

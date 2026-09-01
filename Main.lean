@@ -14,6 +14,7 @@ def main (arguments : List String) : IO UInt32 := do
   | ["codex-daemon", "shutdown"] => do
       Eggshell.Plugin.Daemon.shutdown
       pure 0
+  | ["egg", "init"] => Eggshell.Install.initCommand
   | "egg" :: rest => Eggshell.Plugin.eggControl rest
   | ["init"] => Eggshell.Install.initCommand
   | ["install", "codex"] => Eggshell.Install.command true
