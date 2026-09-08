@@ -17,6 +17,9 @@ EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" \
 
 Tests must use an isolated absolute `EGGSHELL_DATA_ROOT`; they refuse the normal
 user data directory. Keep public claims tied to completed, reproducible measurements.
+The shipped local search provider is also exercised with its installed MiniLM
+Python environment: `python tests/test_search_provider.py`. The model must already
+be cached; the test uses offline mode and makes no generative model requests.
 For performance work, total tokens mean input plus reasoning output plus final
 output. Quality non-regression and `.egg` growth are constraints; tool count and
 elapsed time are diagnostics.

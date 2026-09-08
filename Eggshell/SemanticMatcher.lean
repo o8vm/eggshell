@@ -29,18 +29,14 @@ structure Response where
   related : List Nat
   deriving FromJson
 
+/-- Prefer a completed turn's synthesis; retain searchable observations when
+    interruption left its parent without an Outcome. Similarity stays advisory. -/
 def eligibleCandidates (corpus : Matcher.Corpus) : List Matcher.Candidate :=
   corpus.candidates.filter fun candidate =>
     (Matcher.atomText? candidate.edge.work).isSome &&
-      !corpus.subworks.contains candidate.edge.work
-
-theorem eligibleCandidate_is_parent {corpus : Matcher.Corpus}
-    {candidate : Matcher.Candidate}
-    (eligible : candidate ∈ eligibleCandidates corpus) :
-    corpus.subworks.contains candidate.edge.work = false := by
-  have accepted := (List.mem_filter.mp eligible).2
-  simp only [Bool.and_eq_true] at accepted
-  simpa using accepted.2
+      !(corpus.parents.any fun parent =>
+        parent.children.contains candidate.edge.work &&
+          corpus.candidates.any fun owner => owner.edge.work == parent.parent)
 
 def relations (candidates : List Matcher.Candidate)
     (indices : List Nat) : List Value :=
@@ -122,7 +118,8 @@ def exchange (running : Running) (request : Request) : IO Response := do
   | .error message => throw (IO.userError s!"semantic matcher: {message}")
 
 def candidateText (candidate : Matcher.Candidate) : String :=
-  Matcher.atomText? candidate.edge.work |>.getD ""
+  (Matcher.atomText? candidate.edge.work |>.getD "") ++ "\n" ++
+    (Matcher.atomText? candidate.edge.outcome |>.getD "")
 
 /-- Stable cache key for rebuildable acceleration; it is never graph authority. -/
 def contentKey (value : Value) : String :=
@@ -132,19 +129,11 @@ def contentKey (value : Value) : String :=
 def item (value : Value) (text : String) : Item :=
   { id := contentKey value, text }
 
-def parentOutcomes (graph : WorkGraph) : List OutcomeEdge :=
-  graph.outcomes.filter fun edge => !graph.subworks.contains edge.work
-
-theorem parentOutcome_is_not_subwork {graph : WorkGraph} {edge : OutcomeEdge}
-    (member : edge ∈ parentOutcomes graph) :
-    graph.subworks.contains edge.work = false := by
-  simpa [parentOutcomes] using (List.mem_filter.mp member).2
-
 def outcomeWorkItems (values : List Value) : List Item :=
-  let graph := WorkGraph.fromValues values
-  (parentOutcomes graph).filterMap (fun edge => do
-    let text ← Matcher.atomText? edge.work
-    pure (item edge.work text)) |>.eraseDups
+  (eligibleCandidates (Matcher.Corpus.build LogicalText.logicalNormalizer
+    (WorkGraph.fromValues values))).map fun candidate =>
+      let text := candidateText candidate
+      item (.text text) text
 
 def nominations (candidates : List Matcher.Candidate)
     (response : Response) : Matcher.SemanticNominations := {
@@ -160,9 +149,8 @@ theorem nomination_has_corpus_owner {corpus : Matcher.Corpus}
   exact ⟨candidate, (List.mem_filter.mp eligible).1, equal⟩
 
 /--
-Queues immutable parent Work after a turn is sealed without fabricating a
-staged Outcome. Native children remain in the kernel graph and are reached by
-positive resaturation after a parent nomination. The cache may outlive a later
+Queues immutable text after a turn is sealed without fabricating a
+staged Outcome. The cache may outlive a later
 `drop`, but queries resolve IDs only against authoritative Outcome owners.
 -/
 def enqueueWork (command : List String) (work : Value) (text : String) : IO Unit := do
@@ -192,7 +180,8 @@ def nominate (command : List String) (query : Value) (queryText : String)
       let response ← exchange running {
         query := item query queryText
         candidates := candidates.map fun candidate =>
-          item candidate.edge.work (candidateText candidate)
+          let text := candidateText candidate
+          item (.text text) text
       }
       set (some running)
       pure (nominations candidates response)

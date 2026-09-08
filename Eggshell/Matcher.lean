@@ -879,6 +879,7 @@ structure Corpus where
   candidates : List Candidate
   frequencies : Std.HashMap String Nat
   subworks : List Value
+  parents : List AllEdge := []
 
 namespace Corpus
 
@@ -894,18 +895,19 @@ def compileCandidate (normalize : Normalizer) (edge : OutcomeEdge) : Option Cand
       makePattern (LogicalText.build normalize text)
     pure { edge, work, workPatterns, outcome, native }
 
-def fromCandidates (candidates : List Candidate) (subworks : List Value) : Corpus :=
+def fromCandidates (candidates : List Candidate) (subworks : List Value)
+    (parents : List AllEdge := []) : Corpus :=
   let subworks := subworks.eraseDups
   let frequencies := candidates.foldl (fun frequencies candidate =>
     ((candidate.work :: candidate.outcome.toList).flatMap (fun pattern =>
       pattern.logical.units.map (·.text)) |> hashDistinct).foldl
       (fun frequencies unit =>
         frequencies.insert unit (frequencies.getD unit 0 + 1)) frequencies) {}
-  { candidates, frequencies, subworks }
+  { candidates, frequencies, subworks, parents }
 
 def build (normalize : Normalizer) (graph : WorkGraph) : Corpus :=
   fromCandidates ((outcomeCandidates graph).filterMap
-    (compileCandidate normalize)) graph.subworks
+    (compileCandidate normalize)) graph.subworks graph.all
 
 /-
 Staged Outcomes extend the immutable corpus by compiling only unseen owners.
@@ -918,6 +920,7 @@ def extend (normalize : Normalizer) (corpus : Corpus)
     candidate.edge.relation != edge.relation
   fromCandidates (corpus.candidates ++ unseen.filterMap
     (compileCandidate normalize)) (corpus.subworks ++ graph.subworks)
+    (corpus.parents ++ graph.all)
 
 /--
 Numeric ranges and one- or two-letter transport words carry no independent

@@ -560,7 +560,15 @@ def renderAutomatic (staged : List Value) (budget : Nat) (current : String)
         selected.applicability == .advisory
       let fullText := if fittedSlices.isEmpty then "" else assemble header footer
         (fittedSlices.map (·.text))
-      let deltaText := renderConnectionDelta newlyCovered
+      /-
+      A staged Outcome belongs to this native chat.  It can control a repeated
+      operation, but its graph is already visible to the model and must not be
+      serialized as a GRAPH DELTA.  Keep the delta only when the same operation
+      also transports a selected owner from another chat; that is the explicit
+      cross-chat exception to the no-self-resend rule.
+      -/
+      let deltaText := if transportable.isEmpty then ""
+        else renderConnectionDelta newlyCovered
       some {
         text := if fullText = "" then deltaText else if deltaText = "" then fullText
           else fullText ++ "\n\n" ++ deltaText

@@ -23,9 +23,6 @@ def emptyHook : String := "{}"
 def systemMessage (message : String) : String :=
   Json.mkObj [("systemMessage", message)] |>.compress
 
-def blockPrompt (reason : String) : String :=
-  Json.mkObj [("decision", "block"), ("reason", reason)] |>.compress
-
 def defaultState (config : Config.Config) : ThreadState :=
   { profile := config.defaultProfile }
 
@@ -76,20 +73,24 @@ theorem recordHandoffWithin_is_per_delta (limit : Nat) (state : ThreadState)
 
 def resolveDefault (files : SessionFiles) (state : ThreadState)
     (pending : PendingTurn) : IO ThreadState := do
-  match pending.finalMessage with
+  let nextState ← match pending.finalMessage with
   | none =>
       /-
       A disconnected turn has no parent result, but every terminal PostToolUse
       already recorded a real Work→Outcome edge. Preserve those observations
       with their open remainder; unresolved in-flight calls never enter the
-      compiler. Recovered Outcomes are deliberately not marked delivered,
-      because native history may have disappeared with the connection.
+      compiler. The native result is already visible in this chat, so mark its
+      owners visible until compaction clears the context epoch.
       -/
       if !pending.tools.isEmpty then
-        if let some target := pending.write then
-          let _ ← promote pending (System.FilePath.mk target)
-      removeIfExists files.pending
-      pure state
+        match pending.write with
+        | some target =>
+            let promotion ← promote pending (System.FilePath.mk target)
+            pure (addDeliveredGraphs state
+              (promotion.outcomeRelations.map nativeHistoryKey))
+        | none => pure state
+      else
+        pure state
   | some _ =>
       let nextState ← match pending.write with
         | none => pure state
@@ -97,8 +98,29 @@ def resolveDefault (files : SessionFiles) (state : ThreadState)
             let promotion ← promote pending (System.FilePath.mk target)
             pure (addDeliveredGraphs state
               (promotion.outcomeRelations.map nativeHistoryKey))
-      removeIfExists files.pending
       pure nextState
+  removeIfExists files.pending
+  pure nextState
+
+/-- A failed authority write must not occupy the next turn's observation slot. -/
+def deferPending (files : SessionFiles) (pending : PendingTurn) : IO Unit := do
+  let key := SemanticMatcher.contentKey (.text pending.turnId)
+  writeJson (files.directory / "deferred" / (key ++ ".json")) pending
+  removeIfExists files.pending
+
+def retryDeferred (files : SessionFiles) : IO Unit := do
+  let directory := files.directory / "deferred"
+  if !(← directory.pathExists) then return
+  for entry in ← directory.readDir do
+    if entry.fileName.endsWith ".json" then
+      try
+        if let some pending ← (readJson? entry.path : IO (Option PendingTurn)) then
+          if let some target := pending.write then
+            if pending.finalMessage.isSome || !pending.tools.isEmpty then
+              let _ ← promote pending (System.FilePath.mk target)
+          removeIfExists entry.path
+      catch error =>
+        IO.eprintln s!"Eggshell retained deferred work for another save attempt: {error}"
 
 def sessionStart (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
@@ -123,7 +145,7 @@ def sessionStart (input : Json) : IO String := do
     pure <| match pending with
       | some pending =>
           if pending.finalMessage.isSome then
-            systemMessage "Eggshell recovered a sealed staged turn; use !egg keep or !egg drop."
+            systemMessage "Eggshell recovered the previous turn; it will be saved automatically."
           else emptyHook
       | none => emptyHook
 
@@ -137,6 +159,7 @@ def userPromptSubmit (input : Json) : IO String := do
     let some config := config? | pure emptyHook
     let mut state := (← (readJson? files.state : IO (Option ThreadState))).getD
       (defaultState config)
+    retryDeferred files
     if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
       /-
       A repeated hook for the same turn is idempotent. A distinct turn proves
@@ -144,7 +167,10 @@ def userPromptSubmit (input : Json) : IO String := do
       observed outcomes are recovered before extracting the new handoff.
       -/
       if pending.turnId == turn then return emptyHook
-      state ← resolveDefault files state pending
+      state ← try resolveDefault files state pending catch error =>
+        deferPending files pending
+        IO.eprintln s!"Eggshell retained the previous work and started a new turn: {error}"
+        pure state
     let profileName := state.nextProfile.getD state.profile
     let selection ← match Config.resolve config profileName with
       | .ok selection => pure selection
@@ -343,7 +369,8 @@ def stop (input : Json) : IO String := do
     pure none
   if let some pending := sealed then
     if let some command := pending.semanticMatcher then
-      SemanticMatcher.enqueueWork command (.text pending.prompt) pending.prompt
+      let text := pending.prompt ++ "\n" ++ pending.finalMessage.getD ""
+      SemanticMatcher.enqueueWork command (.text text) text
   pure emptyHook
 
 def sessionEnd (input : Json) : IO String := do
@@ -351,11 +378,10 @@ def sessionEnd (input : Json) : IO String := do
   withSession session fun files => do
     let some state ← (readJson? files.state : IO (Option ThreadState)) | pure emptyHook
     let some pending ← (readJson? files.pending : IO (Option PendingTurn)) | pure emptyHook
-    if pending.finalMessage.isSome then
-      let state ← resolveDefault files state pending
-      writeJson files.state state
-    else if pending.finalMessage.isNone then
-      removeIfExists files.pending
+    -- Closing a chat must use the same recovery path as its next prompt.
+    -- Promotion failure leaves pending.json intact for a later retry.
+    let state ← resolveDefault files state pending
+    writeJson files.state state
     pure emptyHook
 
 def dispatchHook (input : Json) : IO String := do

@@ -12,10 +12,14 @@ def model : String :=
 def runtimeVersion : String := "fastembed-0.8.0"
 
 def providerSource : String := r#"import argparse
+import hashlib
 import json
+import math
 import os
+import re
 import sqlite3
 import sys
+from collections import Counter
 
 import numpy as np
 from fastembed import TextEmbedding
@@ -28,6 +32,7 @@ def arguments():
     parser.add_argument("--model", default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     parser.add_argument("--top-k", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=0.38)
+    parser.add_argument("--mode", choices=["semantic", "lexical", "hybrid"], default="hybrid")
     parser.add_argument("--preload", action="store_true")
     return parser.parse_args()
 
@@ -38,56 +43,93 @@ def normalized(vector):
     return value if norm == 0 else value / norm
 
 
+def windows(text):
+    # Bound encoder input, not the authoritative Outcome returned to the kernel.
+    return [text[start:start + 512] for start in range(0, max(1, len(text)), 384)]
+
+
+def terms(text):
+    return re.findall(r"[a-z0-9_./:-]+|[\u3040-\u30ff\u3400-\u9fff]", text.casefold())
+
+
+def lexical_ranking(query, candidates):
+    wanted = set(terms(query))
+    documents = [set(terms(item["text"])) for item in candidates]
+    counts = Counter(term for document in documents for term in document)
+    scores = [(sum(math.log1p(len(documents) / counts[term])
+                   for term in wanted & document), index)
+              for index, document in enumerate(documents)]
+    return [index for score, index in sorted(scores, key=lambda pair: (-pair[0], pair[1])) if score > 0]
+
+
+def fuse(rankings, limit):
+    scores = Counter()
+    for ranking in rankings:
+        for rank, index in enumerate(ranking):
+            scores[index] += 1 / (60 + rank + 1)
+    return sorted(scores, key=lambda index: (-scores[index], index))[:limit]
+
+
 def main():
     options = arguments()
     os.makedirs(options.cache, exist_ok=True)
     os.makedirs(options.model_cache, exist_ok=True)
-    database = sqlite3.connect(os.path.join(options.cache, "vectors.sqlite"))
+    database = sqlite3.connect(os.path.join(options.cache, "window-vectors-v2.sqlite"))
     database.execute("create table if not exists vectors (id text primary key, vector blob not null)")
-    encoder = TextEmbedding(
+    encoder = None if options.mode == "lexical" else TextEmbedding(
         model_name=options.model,
         cache_dir=options.model_cache,
         threads=max(1, min(4, os.cpu_count() or 1)),
     )
+
+    def key(text):
+        return hashlib.sha256((options.model + "\0" + text).encode()).hexdigest()
 
     def lookup(identifier):
         row = database.execute("select vector from vectors where id = ?", (identifier,)).fetchone()
         return None if row is None else np.frombuffer(row[0], dtype=np.float32)
 
     def store(items):
-        missing = [item for item in items if lookup(item["id"]) is None]
+        texts = list(dict.fromkeys(part for item in items for part in windows(item["text"])))
+        missing = [text for text in texts if lookup(key(text)) is None]
         if not missing:
             return
-        vectors = encoder.embed([item["text"] for item in missing], batch_size=32)
+        vectors = encoder.embed(missing, batch_size=32)
         database.executemany(
             "insert or replace into vectors(id, vector) values (?, ?)",
-            ((item["id"], normalized(vector).tobytes()) for item, vector in zip(missing, vectors)),
+            ((key(text), normalized(vector).tobytes()) for text, vector in zip(missing, vectors)),
         )
         database.commit()
 
     if options.preload:
-        next(encoder.embed(["eggshell"], batch_size=1))
+        if encoder is not None:
+            next(encoder.embed(["eggshell"], batch_size=1))
         return
 
     for raw in sys.stdin:
         try:
             request = json.loads(raw)
             if "index" in request:
-                store(request["index"])
+                if encoder is not None:
+                    store(request["index"])
                 continue
-            store(request.get("candidates", []))
-            store([request["query"]])
-            query = lookup(request["query"]["id"])
+            candidates = request.get("candidates", [])
+            lexical = lexical_ranking(request["query"]["text"], candidates)
             scored = []
-            for index, candidate in enumerate(request.get("candidates", [])):
-                vector = lookup(candidate["id"])
-                if vector is not None and vector.shape == query.shape:
-                    score = float(np.dot(query, vector))
+            if encoder is not None:
+                store(candidates + [request["query"]])
+                queries = [lookup(key(part)) for part in windows(request["query"]["text"])]
+                for index, candidate in enumerate(candidates):
+                    vectors = [lookup(key(part)) for part in windows(candidate["text"])]
+                    score = max(float(np.dot(query, vector)) for query in queries for vector in vectors)
                     if score >= options.threshold:
                         scored.append((score, index))
-            scored.sort(reverse=True)
-            print(json.dumps({"related": [index for _, index in scored[:options.top_k]]}), flush=True)
-        except Exception:
+            semantic = [index for _, index in sorted(scored, key=lambda pair: (-pair[0], pair[1]))]
+            ranking = (fuse([lexical, semantic], options.top_k) if options.mode == "hybrid"
+                       else (lexical if options.mode == "lexical" else semantic)[:options.top_k])
+            print(json.dumps({"related": ranking}), flush=True)
+        except Exception as error:
+            print(str(error), file=sys.stderr, flush=True)
             print(json.dumps({"related": []}), flush=True)
 
 

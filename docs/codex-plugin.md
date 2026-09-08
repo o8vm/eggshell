@@ -21,6 +21,23 @@ Plugin hooks     = observe the native turn and inject the handoff
 
 The model works normally. It does not produce an Eggshell JSON envelope, footer, decomposition, confidence score, or work receipt. Hooks stage the prompt, supported native tool events, and final message. The kernel selects prior work for the next turn.
 
+Closing or interrupting a chat preserves terminal tool results even when no final
+answer arrived. The next prompt starts normally; `!egg drop` is never required
+to continue. If an authority write fails, the previous turn is retained under
+the session's `deferred` directory and retried on subsequent prompts, while the
+new turn gets its own observation slot. A hard process exit can omit every
+closing hook; its pending file remains available when that session resumes.
+
+Search considers both the recorded request and its outcome. Completed turns
+provide their synthesis; interrupted turns without a synthesis expose their
+observed operations as advisory candidates. The local provider supports
+`--mode semantic`, `--mode lexical`, and `--mode hybrid` (the current default).
+Hybrid combines MiniLM and literal term rankings with reciprocal rank fusion.
+Long records are indexed in overlapping windows, and vectors are keyed by their
+text and model. This changes candidate discovery, not the rules for completed
+work or the bytes of authoritative evidence. Token savings for this revision
+remain under evaluation.
+
 ## Install
 
 Install the latest checksummed release, then initialize the current project:

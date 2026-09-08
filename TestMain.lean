@@ -434,8 +434,9 @@ def testLocalUnion : IO Unit := do
       })
       [] true none staged |
     throw (IO.userError "current-turn graph control lost a staged Outcome")
-  check (activeHandoff.blocksCurrent && activeHandoff.text.contains "GRAPH DELTA")
-    "current-turn Outcome was retransmitted or failed to stop duplicate Work"
+  check (activeHandoff.blocksCurrent && activeHandoff.text = "" &&
+      !activeHandoff.text.contains "GRAPH DELTA")
+    "current-chat staged Outcome was retransmitted instead of only stopping duplicate Work"
   let some restoredStage ← automaticHandoff selection
       (← onlyWork {
         stagedTool with
@@ -485,8 +486,9 @@ def testSemanticProviderTransport : IO Unit := do
   let executable ← IO.appPath
   let persisted ← Persistence.load semanticEgg
   let indexed := SemanticMatcher.outcomeWorkItems persisted.values
-  check (indexed.length == 1 && indexed.head?.map (·.text) = some prior.prompt)
-    "semantic provider indexed operation Work instead of only parent Turn Work"
+  check (indexed.length == 1 && indexed.head?.map (·.text) =
+      some (prior.prompt ++ "\n" ++ prior.finalMessage.getD ""))
+    "search lost a completed turn's Work or Outcome, or expanded its children"
   let retrievalCommand := [executable.toString, "semantic-provider-fixture", "retrieval"]
   SemanticMatcher.enqueueWork retrievalCommand (.text prior.prompt) prior.prompt
   let retrieval ← automaticHandoff {
@@ -544,8 +546,9 @@ def testNaturalLanguageSessionTransport : IO Unit := do
     ("hook_event_name", "SessionEnd"), ("session_id", prior.sessionId)])
   let persisted ← Persistence.load naturalLanguageEgg
   let indexed := SemanticMatcher.outcomeWorkItems persisted.values
-  check (indexed.length == 1 && indexed.head?.map (·.text) = some priorPrompt)
-    "a tool-free parent turn was not indexed as natural-language Work"
+  check (indexed.length == 1 && indexed.head?.map (·.text) =
+      some (priorPrompt ++ "\n" ++ priorResult))
+    "a tool-free turn's conclusions were not searchable"
   let selection : Config.Selection := {
     label := "natural-language"
     semanticMatcher := some command
@@ -1361,9 +1364,84 @@ def testHooks : IO Unit := do
       (.text "printf interrupted_unobserved_b87e"))
     "connection recovery promoted an operation without a terminal result"
 
+  /- Closing a chat retains observed work even if Stop never arrived. -/
+  let closedSession := "session-closed-interruption"
+  let closedFiles ← sessionFiles closedSession
+  let closedPending : PendingTurn := {
+    replayedPending with
+    sessionId := closedSession
+    turnId := "closed-turn"
+    prompt := "Closed investigation"
+    tools := [interruptedTool]
+  }
+  writeJson closedFiles.state ({ profile := "work" } : ThreadState)
+  writeJson closedFiles.pending closedPending
+  let closeEvent := Lean.Json.mkObj [
+    ("hook_event_name", "SessionEnd"), ("session_id", closedSession)]
+  let _ ← dispatchHook closeEvent
+  check (!(← closedFiles.pending.pathExists)) "closed turn remained staged after promotion"
+  let closedGraph ← Persistence.load hookEgg
+  let closedOutcomes := closedGraph.values.filterMap OutcomeEdge.fromValue?
+  check (closedOutcomes.any fun edge =>
+      edge.work == recoveredWork && edge.outcome == recoveredResult)
+    "SessionEnd discarded a terminal tool outcome"
+  check (!(closedOutcomes.any fun edge => edge.work == .text closedPending.prompt))
+    "SessionEnd fabricated a final answer"
+  let searchable := SemanticMatcher.outcomeWorkItems closedGraph.values
+  check (searchable.any fun item => item.text.contains "interrupted_observed_62d1")
+    "interrupted observations became invisible to semantic search"
+  check ((closedGraph.values.filterMap AllEdge.fromValue?).any fun edge =>
+      edge.parent == .text closedPending.prompt && edge.children.contains recoveredWork &&
+        edge.children.contains (HandoffRemainder.value closedPending.prompt))
+    "SessionEnd lost the open remainder"
+  let _ ← dispatchHook closeEvent
+  check ((← Persistence.load hookEgg).revision == closedGraph.revision)
+    "repeated SessionEnd promoted the same turn twice"
+  let freshSelection : Config.Selection := {
+    label := "recovered", semanticMatcher := none
+    read := [{ name := "work", path := hookEgg }], write := none, handoffChars := 120000
+  }
+  let restored ← automaticHandoff freshSelection (canonicalToolWork interruptedTool) [] true
+  check (restored.any fun handoff => handoff.text.contains "interrupted_observed_62d1")
+    "a new chat could not reuse the closed chat's observed work"
+
+  /- Failed persistence must not erase the only copy of an interrupted turn. -/
+  let badTarget := closedFiles.directory / "not-an-egg"
+  Persistence.privateDirectory badTarget
+  writeJson closedFiles.pending { closedPending with write := some badTarget.toString }
+  let failed ← try
+    let _ ← dispatchHook closeEvent
+    pure false
+    catch _ => pure true
+  check (failed && (← closedFiles.pending.pathExists))
+    "failed recovery erased the staged work"
+  let afterFailure := Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", closedSession),
+    ("turn_id", "after-save-failure"), ("cwd", cwd), ("prompt", "Continue ordinary work")]
+  let reply ← dispatchHook afterFailure
+  check (!reply.contains "drop" && !reply.contains "\"decision\":\"block\"")
+    "saving failed and Eggshell required the user to drop work"
+  let some newPending ← (readJson? closedFiles.pending : IO (Option PendingTurn)) |
+    throw (IO.userError "save failure prevented the next turn from being observed")
+  check (newPending.turnId == "after-save-failure") "new turn reused the failed pending slot"
+  let deferred := closedFiles.directory / "deferred" /
+    (SemanticMatcher.contentKey (.text closedPending.turnId) ++ ".json")
+  let some saved ← (readJson? deferred : IO (Option PendingTurn)) |
+    throw (IO.userError "save failure lost the deferred turn")
+  check (saved.tools.length == 1 && saved.inFlight.length == 1)
+    "deferral changed the interrupted observations"
+  IO.FS.removeDir badTarget
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", closedSession),
+    ("turn_id", "after-repair"), ("cwd", cwd), ("prompt", "Continue after repair")])
+  check (!(← deferred.pathExists)) "deferred save was not retried automatically"
+  let retried := (← Persistence.load badTarget).values.filterMap OutcomeEdge.fromValue?
+  check (retried.any fun edge => edge.work == recoveredWork && edge.outcome == recoveredResult)
+    "automatic retry did not restore the terminal observation"
+
   /- A turn interrupted before any terminal tool result has no work to retain. -/
   let emptyRecoverySession := "session-empty-interruption"
-  let beforeEmptyRecovery := recoveredGraph.revision
+  let beforeEmptyRecovery := (← Persistence.load hookEgg).revision
   let _ ← dispatchHook (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", emptyRecoverySession),
     ("cwd", cwd)])
