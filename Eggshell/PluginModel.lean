@@ -17,6 +17,8 @@ inductive Projection where
 
 structure ThreadState where
   profile : String
+  /-- When false, hooks neither stage work nor read or send graph context. -/
+  enabled : Bool := true
   nextProfile : Option String := none
   nextProjection : Option Projection := none
   deliveredGraphs : List String := []

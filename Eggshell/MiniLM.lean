@@ -33,6 +33,8 @@ def arguments():
     parser.add_argument("--top-k", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=0.38)
     parser.add_argument("--mode", choices=["semantic", "lexical", "hybrid"], default="hybrid")
+    parser.add_argument("--anchor-k", type=int, default=2)
+    parser.add_argument("--trace")
     parser.add_argument("--preload", action="store_true")
     return parser.parse_args()
 
@@ -62,12 +64,35 @@ def lexical_ranking(query, candidates):
     return [index for score, index in sorted(scores, key=lambda pair: (-pair[0], pair[1])) if score > 0]
 
 
+def lexical_anchor_ranking(query, candidates):
+    # Preserve exact identifiers and paths in the final hybrid ranking.
+    wanted = {term for term in terms(query)
+              if "_" in term or "/" in term or ":" in term or "." in term
+              or any(character.isdigit() for character in term)}
+    documents = [set(terms(item["text"])) for item in candidates]
+    counts = Counter(term for document in documents for term in document)
+    scores = [(sum(math.log1p(len(documents) / counts[term])
+                   for term in wanted & document), index)
+              for index, document in enumerate(documents)]
+    return [index for score, index in sorted(scores, key=lambda pair: (-pair[0], pair[1])) if score > 0]
+
+
 def fuse(rankings, limit):
     scores = Counter()
     for ranking in rankings:
         for rank, index in enumerate(ranking):
             scores[index] += 1 / (60 + rank + 1)
     return sorted(scores, key=lambda index: (-scores[index], index))[:limit]
+
+
+def anchor_first(anchors, ranking, limit):
+    selected = []
+    for index in anchors + ranking:
+        if index not in selected:
+            selected.append(index)
+        if len(selected) == limit:
+            break
+    return selected
 
 
 def main():
@@ -81,6 +106,17 @@ def main():
         cache_dir=options.model_cache,
         threads=max(1, min(4, os.cpu_count() or 1)),
     )
+    def write_trace(record):
+        if not options.trace:
+            return
+        try:
+            parent = os.path.dirname(options.trace)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(options.trace, "a", encoding="utf-8") as output:
+                output.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+        except Exception as error:
+            print("trace error: " + str(error), file=sys.stderr, flush=True)
 
     def key(text):
         return hashlib.sha256((options.model + "\0" + text).encode()).hexdigest()
@@ -115,6 +151,7 @@ def main():
                 continue
             candidates = request.get("candidates", [])
             lexical = lexical_ranking(request["query"]["text"], candidates)
+            anchors = lexical_anchor_ranking(request["query"]["text"], candidates)
             scored = []
             if encoder is not None:
                 store(candidates + [request["query"]])
@@ -122,11 +159,26 @@ def main():
                 for index, candidate in enumerate(candidates):
                     vectors = [lookup(key(part)) for part in windows(candidate["text"])]
                     score = max(float(np.dot(query, vector)) for query in queries for vector in vectors)
-                    if score >= options.threshold:
-                        scored.append((score, index))
-            semantic = [index for _, index in sorted(scored, key=lambda pair: (-pair[0], pair[1]))]
-            ranking = (fuse([lexical, semantic], options.top_k) if options.mode == "hybrid"
-                       else (lexical if options.mode == "lexical" else semantic)[:options.top_k])
+                    scored.append((score, index))
+            semantic_all = [index for _, index in sorted(scored, key=lambda pair: (-pair[0], pair[1]))]
+            semantic = [index for score, index in sorted(scored, key=lambda pair: (-pair[0], pair[1]))
+                        if score >= options.threshold]
+            hybrid_base = fuse([lexical, semantic], options.top_k)
+            base = (hybrid_base if options.mode == "hybrid"
+                    else (lexical if options.mode == "lexical" else semantic))
+            ranking = anchor_first(anchors[:options.anchor_k], base, options.top_k)
+            write_trace({
+                "mode": options.mode,
+                "candidate_count": len(candidates),
+                "candidate_ids": [item.get("id", "") for item in candidates],
+                "lexical_rank": lexical,
+                "anchor_rank": anchors,
+                "semantic_rank": semantic_all,
+                "semantic_threshold_rank": semantic,
+                "hybrid_rank": hybrid_base,
+                "selected": ranking,
+            })
+            # Keep the provider wire response stable; diagnostics live in the trace sidecar.
             print(json.dumps({"related": ranking}), flush=True)
         except Exception as error:
             print(str(error), file=sys.stderr, flush=True)
@@ -143,6 +195,7 @@ structure Layout where
   provider : System.FilePath
   models : System.FilePath
   vectors : System.FilePath
+  trace : System.FilePath
 
 def supportRoot (root : System.FilePath) : System.FilePath :=
   root / "share" / "eggshell" / "minilm"
@@ -155,6 +208,7 @@ def layout (root pluginData : System.FilePath) : Layout :=
     provider := support / "provider.py"
     models := support / "models"
     vectors := pluginData / "semantic" / "minilm"
+    trace := pluginData / "semantic" / "matcher-trace.jsonl"
   }
 
 def unixPython (layout : Layout) : System.FilePath :=
@@ -225,6 +279,7 @@ def command (root pluginData : System.FilePath) : IO (Option (List String)) := d
     "--model-cache", paths.models.toString,
     "--model", model,
     "--top-k", "8",
-    "--threshold", "0.38"])
+    "--threshold", "0.38",
+    "--trace", paths.trace.toString])
 
 end Eggshell.MiniLM

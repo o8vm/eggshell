@@ -7,7 +7,7 @@ public import Eggshell.PluginHooks
 namespace Eggshell.Plugin
 
 def controlUsage : String :=
-  "usage: egg [init|use P|next P|next graph auto|none|VALUES|keep [EGG]|drop|" ++
+  "usage: egg [init|on|off|use P|next P|next graph auto|none|VALUES|keep [EGG]|drop|" ++
   "graph [VALUES]|why|find TEXT|class VALUE|union LEFT RIGHT|split UNION|" ++
   "diff [EGG]|inspect]"
 
@@ -29,6 +29,7 @@ def currentSelection (config : Config.Config) (state : ThreadState) : IO Config.
 
 def statusLine (selection : Config.Selection) (state : ThreadState)
     (pending : Option PendingTurn) : String :=
+  let enabled := if state.enabled then "on" else "off"
   let reads := " ".intercalate (selection.read.map (·.name))
   let write := selection.write.map (·.name) |>.getD "read-only"
   let pendingText := match pending with
@@ -36,7 +37,7 @@ def statusLine (selection : Config.Selection) (state : ThreadState)
     | some pending =>
         let phase := if pending.finalMessage.isSome then "sealed" else "active"
         s!"{phase}:{pending.turnId.take 8}"
-  s!"egg {state.profile} [{reads}] → {write} pending:{pendingText}"
+  s!"egg {enabled} {state.profile} [{reads}] → {write} pending:{pendingText}"
 
 def chooseTarget (config : Config.Config) (pending : PendingTurn)
     (requested : Option String) : IO System.FilePath := do
@@ -131,6 +132,22 @@ def control (arguments : List String) : IO String := do
     match arguments with
     | [] => pure (statusLine selection state pending)
     | ["--help"] | ["-h"] => pure controlUsage
+    | ["on"] =>
+        state := { state with enabled := true }
+        writeJson files.state state
+        pure "egg on (memory enabled)"
+    | ["off"] =>
+        removeIfExists files.pending
+        state := {
+          state with
+          enabled := false
+          nextProfile := none
+          nextProjection := none
+          lastHandoff := ""
+          lastReason := "memory disabled"
+        }
+        writeJson files.state state
+        pure "egg off (memory disabled; no graph will be stored or sent)"
     | ["use", profile] =>
         let _ ← match Config.resolve config profile with
           | .ok selection => pure selection
@@ -161,6 +178,8 @@ def control (arguments : List String) : IO String := do
         removeIfExists files.pending
         pure "egg dropped staged turn"
     | ["keep"] | ["keep", _] =>
+        if !state.enabled then
+          throw (IO.userError "Eggshell is off; run !egg on before keeping a turn")
         let some pending := pending |
           throw (IO.userError "no staged turn")
         if pending.finalMessage.isNone then
@@ -174,9 +193,11 @@ def control (arguments : List String) : IO String := do
         removeIfExists files.pending
         pure s!"egg kept {pending.turnId.take 8} → {target}"
     | ["graph"] =>
-        pure <| if state.lastHandoff = "" then "no graph was sent" else state.lastHandoff
+        pure <| if !state.enabled then "egg off; no graph was sent"
+          else if state.lastHandoff = "" then "no graph was sent" else state.lastHandoff
     | ["why"] =>
-        pure <| if state.lastReason = "" then "no graph selection has run" else state.lastReason
+        pure <| if !state.enabled then "egg off; no graph selection has run"
+          else if state.lastReason = "" then "no graph selection has run" else state.lastReason
     | "graph" :: roots =>
         let composite ← graphForSelection selection
         let values ← roots.mapM fun key =>
@@ -194,6 +215,8 @@ def control (arguments : List String) : IO String := do
           | .error message => throw (IO.userError message)
         renderClass composite value
     | ["union", leftKey, rightKey] =>
+        if !state.enabled then
+          throw (IO.userError "Eggshell is off; run !egg on before changing a graph")
         let target ← match selection.write with
           | some egg => pure egg.path
           | none => throw (IO.userError "current profile is read-only")
@@ -207,6 +230,8 @@ def control (arguments : List String) : IO String := do
         let edge ← persistUnion target left right
         pure s!"egg union {unionKey edge} {leftKey} = {rightKey} → {target}"
     | ["split", key] =>
+        if !state.enabled then
+          throw (IO.userError "Eggshell is off; run !egg on before changing a graph")
         let target ← match selection.write with
           | some egg => pure egg.path
           | none => throw (IO.userError "current profile is read-only")

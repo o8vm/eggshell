@@ -28,14 +28,23 @@ class SearchProviderTest(unittest.TestCase):
             ]
             query = {"id": "query", "text": "CONFIG_ARCHIVE_SENTINEL_7E29"}
             request = {"query": query, "candidates": candidates}
-            for mode in ("lexical", "semantic", "hybrid"):
-                result = subprocess.run([
+            modes = ["lexical", "semantic", "hybrid"]
+            for mode in modes:
+                trace = root / (mode + ".jsonl")
+                command = [
                     sys.executable, str(provider), "--cache", str(root / "cache"),
                     "--model-cache", models, "--mode", mode, "--top-k", "1",
-                    "--threshold", "0",
-                ], input=json.dumps(request) + "\n", text=True, capture_output=True,
+                    "--threshold", "0", "--trace", str(trace), "--anchor-k", "1",
+                ]
+                result = subprocess.run(command, input=json.dumps(request) + "\n", text=True, capture_output=True,
                     check=True, timeout=60, env={**os.environ, "HF_HUB_OFFLINE": "1"})
                 self.assertEqual(json.loads(result.stdout)["related"], [1], result.stderr)
+                records = [json.loads(line) for line in trace.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertEqual(records[0]["candidate_count"], 2)
+                self.assertEqual(records[0]["selected"], [1])
+                self.assertEqual(records[0]["anchor_rank"], [1])
+                self.assertEqual(records[0]["mode"], mode)
 
             # Caller IDs are not cache authority: changed bytes must be reindexed.
             changed = {"query": query, "candidates": [

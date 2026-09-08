@@ -95,6 +95,8 @@ not invented or stored.
 
 ```text
 !egg              show the active profile and staged turn
+!egg on           enable Eggshell memory and graph transport
+!egg off          disable storage and graph transport until `!egg on`
 !egg graph         show exactly what Eggshell sent to Codex
 !egg drop          discard the last staged turn
 ```
@@ -256,6 +258,8 @@ a model turn.
 
 ```text
 !egg                  show profile, read set, write target, and staged turn
+!egg on               enable memory, staging, and graph transport
+!egg off              disable them until `!egg on`; discard any staged turn
 !egg use work         use the writable project profile
 !egg next private     make the next turn read-only
 !egg next off         disable Eggshell for the next turn
@@ -281,8 +285,8 @@ restoration.
 Eggshell has no hosted service, telemetry, analytics, or account system. Prompts,
 tool results, embeddings, and `.egg` files remain local after installation. The
 one-time setup downloads the release, pinned Python package, and MiniLM model.
-Profiles can read without writing or disable Eggshell for a turn; every turn is
-staged before storage.
+Profiles can read without writing, and `!egg off` disables staging and graph
+transport until `!egg on`; enabled turns are staged before storage.
 
 See [PRIVACY.md](PRIVACY.md) for observed hook data, exact storage locations,
 network behavior, and deletion. Report vulnerabilities through GitHub's private

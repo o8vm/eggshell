@@ -136,10 +136,15 @@ def sessionStart (input : Json) : IO String := do
         }
       pure emptyHook
   else withSession session fun files => do
+    let existingState ← (readJson? files.state : IO (Option ThreadState))
+    if let some state := existingState then
+      if !state.enabled then
+        removeIfExists files.pending
+        return emptyHook
     let cwd := System.FilePath.mk ((optionalString input "cwd").getD ".")
     let config ← configFromHook input cwd
     if let some config := config then
-      if !(← files.state.pathExists) then
+      if existingState.isNone then
         writeJson files.state (defaultState config)
     let pending ← (readJson? files.pending : IO (Option PendingTurn))
     pure <| match pending with
@@ -155,9 +160,14 @@ def userPromptSubmit (input : Json) : IO String := do
   let cwd := System.FilePath.mk (← IO.ofExcept (requiredString input "cwd"))
   let prompt ← IO.ofExcept (requiredString input "prompt")
   withSession session fun files => do
+    let existingState ← (readJson? files.state : IO (Option ThreadState))
+    if let some state := existingState then
+      if !state.enabled then
+        removeIfExists files.pending
+        return emptyHook
     let config? ← configFromHook input cwd
     let some config := config? | pure emptyHook
-    let mut state := (← (readJson? files.state : IO (Option ThreadState))).getD
+    let mut state := existingState.getD
       (defaultState config)
     retryDeferred files
     if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
@@ -232,7 +242,8 @@ def deliverForWork (session : String) (pending : PendingTurn)
   withSession session fun files => do
     let some initial ← (readJson? files.state : IO (Option ThreadState)) |
       pure none
-    if pending.projection != .automatic || pending.read.isEmpty then pure none
+    if !initial.enabled then pure none
+    else if pending.projection != .automatic || pending.read.isEmpty then pure none
     else
       let handoff ← automaticHandoff (pendingSelection pending) work
         initial.deliveredGraphs enforce evidenceText staged (!initial.afterCompaction)
@@ -259,14 +270,21 @@ def preToolUse (input : Json) : IO String := do
   let turn ← IO.ofExcept (requiredString input "turn_id")
   let tool ← IO.ofExcept (toolFromHook input false)
   let preflight ← withSession session fun files => do
-    let some pending ← (readJson? files.pending : IO (Option PendingTurn)) |
+    let some state ← (readJson? files.state : IO (Option ThreadState)) |
       pure PreToolState.ignore
-    if pending.turnId != turn || pending.finalMessage.isSome then
-      pure PreToolState.ignore
+    if !state.enabled then
+      do
+        removeIfExists files.pending
+        pure PreToolState.ignore
     else
-      let reserved := reserveTool pending tool
-      writeJson files.pending reserved
-      pure (.reserved reserved)
+      let some pending ← (readJson? files.pending : IO (Option PendingTurn)) |
+        pure PreToolState.ignore
+      if pending.turnId != turn || pending.finalMessage.isSome then
+        pure PreToolState.ignore
+      else
+        let reserved := reserveTool pending tool
+        writeJson files.pending reserved
+        pure (.reserved reserved)
   match preflight with
   | .ignore => pure emptyHook
   | .reserved pending =>
@@ -312,14 +330,21 @@ def postToolUse (input : Json) : IO String := do
   let turn ← IO.ofExcept (requiredString input "turn_id")
   let tool ← IO.ofExcept (toolFromHook input true)
   let postflight ← withSession session fun files => do
-    let some pending ← (readJson? files.pending : IO (Option PendingTurn)) |
+    let some state ← (readJson? files.state : IO (Option ThreadState)) |
       pure PostToolState.ignore
-    if pending.turnId != turn || pending.finalMessage.isSome then
-      pure PostToolState.ignore
+    if !state.enabled then
+      do
+        removeIfExists files.pending
+        pure PostToolState.ignore
     else
-      let pending := finishTool pending tool
-      writeJson files.pending pending
-      pure (.completed pending)
+      let some pending ← (readJson? files.pending : IO (Option PendingTurn)) |
+        pure PostToolState.ignore
+      if pending.turnId != turn || pending.finalMessage.isSome then
+        pure PostToolState.ignore
+      else
+        let pending := finishTool pending tool
+        writeJson files.pending pending
+        pure (.completed pending)
   match postflight with
   | .ignore => pure emptyHook
   | .completed pending =>
@@ -337,13 +362,16 @@ def postCompact (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   withSession session fun files => do
     if let some state ← (readJson? files.state : IO (Option ThreadState)) then
-      writeJson files.state {
-        state with
-        deliveredGraphs := []
-        afterCompaction := true
-        lastHandoff := ""
-        lastReason := "compacted; graph may be resent"
-      }
+      if !state.enabled then
+        removeIfExists files.pending
+      else
+        writeJson files.state {
+          state with
+          deliveredGraphs := []
+          afterCompaction := true
+          lastHandoff := ""
+          lastReason := "compacted; graph may be resent"
+        }
     pure emptyHook
 
 def stop (input : Json) : IO String := do
@@ -351,7 +379,11 @@ def stop (input : Json) : IO String := do
   let turn := optionalString input "turn_id"
   let finalMessage ← IO.ofExcept (requiredString input "last_assistant_message")
   let sealed ← withSession session fun files => do
-    if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
+    let some state ← (readJson? files.state : IO (Option ThreadState)) |
+      pure none
+    if !state.enabled then
+      removeIfExists files.pending
+    else if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
       if matchesHookTurn pending turn then
         let pending := {
           pending with
@@ -378,6 +410,9 @@ def sessionEnd (input : Json) : IO String := do
   withSession session fun files => do
     let some state ← (readJson? files.state : IO (Option ThreadState)) | pure emptyHook
     let some pending ← (readJson? files.pending : IO (Option PendingTurn)) | pure emptyHook
+    if !state.enabled then
+      removeIfExists files.pending
+      return emptyHook
     -- Closing a chat must use the same recovery path as its next prompt.
     -- Promotion failure leaves pending.json intact for a later retry.
     let state ← resolveDefault files state pending

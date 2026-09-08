@@ -33,6 +33,10 @@ provide their synthesis; interrupted turns without a synthesis expose their
 observed operations as advisory candidates. The local provider supports
 `--mode semantic`, `--mode lexical`, and `--mode hybrid` (the current default).
 Hybrid combines MiniLM and literal term rankings with reciprocal rank fusion.
+Identifier and path-like lexical anchors are retained at the front of both
+rankings so semantic similarity cannot discard an exact symbol. Each query also
+writes candidate counts, lexical/semantic ranks, and selected IDs to the local
+`semantic/matcher-trace.jsonl` sidecar.
 Long records are indexed in overlapping windows, and vectors are keyed by their
 text and model. This changes candidate discovery, not the rules for completed
 work or the bytes of authoritative evidence. Token savings for this revision
@@ -225,10 +229,9 @@ proposals use Eggshell's ordinary Operation matcher, Run-local Union, and
 Demand saturation; the external provider never blocks a tool or supplies equality.
 
 There is no pairwise generative-LLM call. The default provider performs exact
-cosine top-k search over cached MiniLM embeddings. It receives Work surfaces and
-content IDs, but never Outcome payloads or `.egg` files. If it exits, stalls, or
-returns invalid JSON, Eggshell drops that result and continues with ordinary
-matching.
+cosine top-k search over cached MiniLM embeddings. It receives Work and Outcome
+text plus content IDs, but never `.egg` files. If it exits, stalls, or returns
+invalid JSON, Eggshell drops that result and continues with ordinary matching.
 
 The cache is not authority. Stop may queue a staged Work that the user later
 drops; that leaves only an unused disposable vector. Active candidates always
@@ -251,6 +254,8 @@ Codex already treats a leading `!` as a user shell command rather than a model p
 
 ```text
 !egg                  show profile, read set, write target, and pending state
+!egg on               enable memory, staging, and graph transport
+!egg off              disable them until `!egg on`; discard any staged turn
 !egg use work         change this thread's normal profile
 !egg next private     use a profile for the next ordinary turn only
 !egg next off         disable Eggshell for the next ordinary turn only

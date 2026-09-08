@@ -1118,13 +1118,65 @@ def testHooks : IO Unit := do
     env := #[("CODEX_THREAD_ID", some "egg-entrypoint-test")]
   }
   check (cli.exitCode == 0 &&
-      cli.stdout.startsWith "egg work [project] → project pending:none")
+      cli.stdout.startsWith "egg on work [project] → project pending:none")
     "installed egg executable did not enter the control CLI"
   let help ← IO.Process.output { cmd := launcher.toString, args := #["--help"] }
   check (help.exitCode == 0 && help.stdout.startsWith "usage: egg ")
     "installed egg executable did not expose standalone help"
   let hookEgg := hookRoot / "work.egg"
   let cwd := hookRoot.toString
+
+  /- The persistent switch must stop both staging and graph transport until it
+     is explicitly enabled again. -/
+  let toggleSession := "toggle-session"
+  let off ← IO.Process.output {
+    cmd := launcher.toString
+    args := #["off"]
+    cwd := some hookRoot
+    env := #[("CODEX_THREAD_ID", some toggleSession)]
+  }
+  check (off.exitCode == 0 && off.stdout.contains "egg off")
+    "!egg off did not disable the persistent memory switch"
+  let offPrompt ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", toggleSession),
+    ("turn_id", "toggle-turn"), ("cwd", cwd),
+    ("prompt", "This work must not be staged while memory is off")])
+  check (offPrompt == emptyHook)
+    "a disabled Eggshell session injected context into a prompt"
+  let toggleFiles ← sessionFiles toggleSession
+  check (!(← toggleFiles.pending.pathExists))
+    "a disabled Eggshell session staged a pending turn"
+  let offState ← (readJson? toggleFiles.state : IO (Option ThreadState))
+  check (offState.map (·.enabled) == some false)
+    "!egg off did not persist the disabled state"
+  let offTool ← dispatchHook (← hookJson
+    "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"toggle-session\",\"turn_id\":\"toggle-turn\",\"tool_name\":\"shell\",\"tool_use_id\":\"toggle-tool\",\"tool_input\":{\"command\":\"printf toggle\"}}")
+  check (offTool == emptyHook && !(← toggleFiles.pending.pathExists))
+    "a disabled Eggshell session recorded native tool work"
+  let offGraph ← IO.Process.output {
+    cmd := launcher.toString
+    args := #["graph"]
+    cwd := some hookRoot
+    env := #[("CODEX_THREAD_ID", some toggleSession)]
+  }
+  check (offGraph.exitCode == 0 && offGraph.stdout.contains "no graph was sent")
+    "!egg graph exposed a handoff while memory was off"
+  let on ← IO.Process.output {
+    cmd := launcher.toString
+    args := #["on"]
+    cwd := some hookRoot
+    env := #[("CODEX_THREAD_ID", some toggleSession)]
+  }
+  check (on.exitCode == 0 && on.stdout.contains "egg on")
+    "!egg on did not re-enable the persistent memory switch"
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "UserPromptSubmit"), ("session_id", toggleSession),
+    ("turn_id", "toggle-turn-on"), ("cwd", cwd),
+    ("prompt", "This work may be staged after memory is enabled")])
+  check (← toggleFiles.pending.pathExists)
+    "!egg on did not resume pending-turn staging"
+  removeIfExists toggleFiles.pending
+
   let _ ← dispatchHook (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-one"), ("cwd", cwd)])
   let _ ← dispatchHook (Lean.Json.mkObj [
