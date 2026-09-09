@@ -44,9 +44,11 @@ a local `.egg` work graph.
 Nothing special is required in the prompt. Eggshell observes normal Codex work,
 keeps the data on your machine, and lets you inspect or discard every handoff.
 
-In one fixed source-code research test, Eggshell used **514,069 total tokens
-instead of 1,734,667**, a **70.4% reduction**, while both answers passed an
-independent quality check. Full scope and limitations are in [Evidence](#evidence).
+In our LLVM follow-up benchmark, Eggshell used **about 80% fewer tokens than
+starting fresh**, while keeping answers broadly usable: **9 of 10 needed no
+substantive correction**. Eggshell builds and organizes memory locally,
+**without LLM calls or additional billed tokens for memory management**.
+See [Evidence](#evidence) for the measurements and quality review.
 
 ## Install
 
@@ -170,84 +172,56 @@ Independent later chat
 
 ## Evidence
 
-These are fixed-workload measurements, not an estimate for every task. Total
-tokens mean input plus reasoning output plus final output. Quality
-non-regression and `.egg` growth are constraints; tool count and elapsed time are
-diagnostics.
+### Ten LLVM trials with the default handoff
 
-### Does the work graph help beyond related-text search?
+We repeated one investigation of Clang target and language options that affect
+toolchain selection or forwarded arguments. Each trial started in an independent
+chat with the same question, source snapshot, model, and prior `.egg`. These
+trials used the **current default handoff prompt**.
+It directs the agent to reuse supported results, check unresolved or changed
+facts, and report what was reused, checked, or left unverified.
 
-We ran the same source-code investigation twice from the same earlier work and
-the same repository state. Neither run received conversation history. The
-control received passages selected by semantic search. The Eggshell run used
-the same search, then followed the Work → Outcome graph to identify work that
-had already been performed.
+Tokens are model input plus output; reasoning tokens are already included in
+output. The figures below measure follow-up work using previously saved work.
 
-| Method | Total tokens | Tools | Elapsed | `.egg` growth | Quality |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Related-text search only | 1,734,667 | 9 | 310 s | +87,503 B | PASS |
-| Eggshell work graph | **514,069** | 11 | **265 s** | **+75,445 B** | PASS |
-| Change | **−70.4%** | +2 | **−14.4%** | **−13.8%** | non-inferior |
+| Measurement | Tokens per completed trial | Reduction vs. fresh reference |
+| --- | ---: | ---: |
+| Fresh reference: one run, no prior memory | 5,355,282 | — |
+| Eggshell: arithmetic mean of 10 completed trials | **683,362** | **87.2%** |
+| Eggshell: all 12 attempts, divided by 10 completions | **962,207** | **82.0%** |
 
-This was not just a larger search result. During the Eggshell run, Union linked
-an operation proposed by the new chat to equivalent earlier Work; saturation
-then reached its recorded Outcome and supplied it before the operation was
-repeated. Both answers passed a separate model-based quality review. This is one
-fixed-workload comparison, not a population estimate.
+The ten completed trials used 6,833,615 tokens in total, ranging from 140,781 to
+1,803,931 per trial. Two additional attempts failed because a hook output was
+missing; they consumed 2,788,458 tokens. Including those attempts gives a total
+of **9,622,073 tokens** to obtain ten completed trials. Means are rounded to the
+nearest token; percentages use the unrounded values.
 
-<details>
-<summary><strong>Exact workload and model settings</strong></summary>
+**Quality:** a review of the answers against the fixed source and execution
+records found six usable answers, three needing minor corrections, and one
+needing a substantive correction to its cause and reproduction explanation.
+Thus **9 of 10 needed no substantive correction**. This was a single-reviewer,
+non-blinded assessment, not a 90% accuracy estimate. Clang Driver runtime tests
+were unavailable, so the review assessed static evidence and reporting rather
+than dynamically verified behavior.
 
-The task traced how Linux's native x86 Time Stamp Counter reaches
-user-visible wall-clock time. Its `.egg` came from a separate earlier chat about
-the paravirtual clock, which shares part of the generic timekeeping path. Both
-arms used the same fixed Linux checkout, warm multilingual-embedding cache, and
-`gpt-5.6-luna` with `xhigh` reasoning. The quality evaluator used the same model
-and effort without seeing which arm produced the answer.
-
-</details>
-
-<details>
-<summary><strong>Three related code investigations in separate chats</strong></summary>
-
-The three tasks traced different Linux clock sources—paravirtual clock, the
-processor Time Stamp Counter, and the ACPI power-management timer—from
-initialization to user-visible wall time. The first two independent chats saved
-their work in one `.egg`; a third independent chat could reuse their common
-timekeeping investigation. Fresh controls received the same third task and
-source checkout but no `.egg`. All runs used `gpt-5.6-luna` with `xhigh`
-reasoning. Native history, web, MCP, Codex memory, and other Plugins were not
-shared.
-
-| Third investigation | Fresh tokens | With earlier `.egg` | Reduction | Fresh tools | Eggshell tools |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 3,687,639 | **1,951,933** | **47.1%** | 32 | **14** |
-| 2 | 3,723,334 | **2,568,344** | **31.0%** | 79 | **17** |
-| Combined | 7,410,973 | **4,520,277** | **39.0%** | 111 | **31** |
-
-An anonymous `gpt-5.6-luna` `xhigh` evaluator marked all four answers PASS with
-no critical errors. Eggshell was pairwise non-inferior in one run; in the other
-it remained factually correct but was less compact and had rougher line anchors.
-
-</details>
+This is one task repeated ten times, compared with a single fresh reference.
+It does not establish a general reduction rate, quality equivalence to fresh,
+or superiority over other memory methods.
 
 <details>
-<summary><strong>Japanese conversation without tools</strong></summary>
+<summary><strong>Workload, prior-work cost, and measurement record</strong></summary>
 
-One Japanese chat fixed seven policies for a reading app. An independent chat
-then requested onboarding copy without restating them. Eggshell shared only the
-4.9 KB seed `.egg`; Native History continued the first chat.
-
-| Follow-up arm | Total tokens | Policy score | Quality |
-| --- | ---: | ---: | --- |
-| Fresh independent chat | **15,221** | 1 / 7 | FAIL — prior policy unavailable |
-| Native History, same chat | 31,394 | **7 / 7** | PASS |
-| Eggshell, independent chat | **20,642** | **7 / 7** | PASS |
-
-Eggshell used 34.2% fewer total tokens than Native History while transporting
-all seven policies across sessions. Fresh used fewer tokens only because it
-could not satisfy the continuation. This single conversation proves the path,
-not a general effect size.
+- Investigation: Clang toolchain selection and argument forwarding, answered in
+  Japanese.
+- LLVM source commit: `6dfe1677ab8dffbc6ec13d53a1e0215d75147689`.
+- Model: `gpt-5.6-luna`, reasoning effort `xhigh`; trials ran serially.
+- Prior work: the same 840,048-byte `.egg` from the preceding investigation, restored
+  before each trial. It fixes the prior work, not the model's randomness.
+- The preceding investigation used **6,552,155 tokens**, recorded separately and
+  excluded from the follow-up figures above. The percentages describe reuse of
+  existing work, not the cost of starting a new investigation from scratch.
+- Per-trial counts, answer and receipt hashes, prompt text, and review outcomes
+  are in the [measurement record](docs/benchmarks/llvm-follow-up.json).
 
 </details>
 
