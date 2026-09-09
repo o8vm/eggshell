@@ -48,7 +48,7 @@ Install the latest checksummed release, then initialize the current project:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/o8vm/eggshell/main/install.sh | sh
+  https://raw.githubusercontent.com/momonpya/eggshell/main/install.sh | sh
 cd your-project
 egg init
 ```

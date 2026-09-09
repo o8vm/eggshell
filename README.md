@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/o8vm/eggshell/actions/workflows/ci.yml"><img src="https://github.com/o8vm/eggshell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/momonpya/eggshell/actions/workflows/ci.yml"><img src="https://github.com/momonpya/eggshell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="lean-toolchain"><img src="https://img.shields.io/badge/Lean-4.33-111111" alt="Lean 4.33"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-111111" alt="Apache-2.0 license"></a>
 </p>
@@ -57,7 +57,7 @@ one-time local semantic-search setup.
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/o8vm/eggshell/main/install.sh | sh
+  https://raw.githubusercontent.com/momonpya/eggshell/main/install.sh | sh
 cd your-project
 egg init
 ```
@@ -77,7 +77,7 @@ export EGGSHELL_PREFIX=/scratch/$USER/eggshell
 # Keep this export too when Codex itself uses a relocated home:
 # export CODEX_HOME=/scratch/$USER/codex
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/o8vm/eggshell/main/install.sh | sh
+  https://raw.githubusercontent.com/momonpya/eggshell/main/install.sh | sh
 export PATH="$EGGSHELL_PREFIX/bin:$PATH"
 ```
 

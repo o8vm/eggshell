@@ -1016,6 +1016,17 @@ def testInstallerOwnership : IO Unit := do
   IO.FS.writeFile (ownedRoot / "bin" / "egg") (Install.pluginLauncher testRoot)
   IO.FS.writeFile ownedLauncher Install.commandLauncher
   Install.validateManagedPaths ownedRoot ownedLauncher
+  IO.FS.writeFile (ownedRoot / ".codex-plugin" / "plugin.json")
+    (Install.pluginManifest.replace "https://github.com/momonpya/eggshell"
+      "https://github.com/o8vm/eggshell")
+  Install.validateManagedPaths ownedRoot ownedLauncher
+  IO.FS.writeFile (ownedRoot / ".codex-plugin" / "plugin.json")
+    (Install.pluginManifest.replace "https://github.com/momonpya/eggshell"
+      "https://github.com/unrelated/eggshell")
+  check (!(← Install.ownedPluginRoot ownedRoot))
+    "installer admitted an unrelated repository with the same Plugin name"
+  IO.FS.writeFile (ownedRoot / Install.ownerMarkerName) "o8vm/eggshell\n"
+  Install.validateManagedPaths ownedRoot ownedLauncher
   IO.FS.writeBinFile ownedLauncher "foreign-binary".toUTF8
   try
     Install.validateManagedPaths ownedRoot ownedLauncher

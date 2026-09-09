@@ -2,7 +2,7 @@
 
 set -eu
 
-repository="o8vm/eggshell"
+repository="momonpya/eggshell"
 release_base="${EGGSHELL_RELEASE_URL:-https://github.com/${repository}/releases/latest/download}"
 if [ -n "${EGGSHELL_PREFIX:-}" ]; then
   eggshell_prefix="${EGGSHELL_PREFIX}"
@@ -17,6 +17,7 @@ esac
 install_dir="${eggshell_prefix}/libexec"
 target="${install_dir}/eggshell"
 owner_file="${install_dir}/eggshell.owner"
+# Stable installation identity, retained across repository transfers.
 owner_identity="o8vm/eggshell"
 staged=""
 
