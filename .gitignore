@@ -1,3 +1,7 @@
 /.lake/
 /.eggs/
 __pycache__/
+
+# Local planning and experiment coordination documents
+/[Pp]lan.md
+/docs/experiment-protocol*.md
