@@ -14,6 +14,9 @@ Follow the [installation and two-chat example](../README.md#install). You need
 macOS or Linux, Python 3, the Codex CLI, and a Codex client with plugin command
 hooks. Review and enable Eggshell through `/hooks` after installation.
 
+The [public two-chat sample](try-it.md) provides a small project, exact prompts,
+and checks for persistence and delivered context.
+
 Run `egg init` in each project that should have its own memory. It creates:
 
 - `.eggshell.toml`, the project configuration;
@@ -102,9 +105,10 @@ model. Run session controls inside the chat whose memory you want to manage.
 !egg inspect          show resolved file paths and saved state identifiers
 ```
 
-A finished turn is normally saved at the next prompt, using the file selected
-when that turn began. Use `!egg keep` before opening an independent chat to make
-it available immediately. Read-only turns are discarded instead of saved.
+Observed tool results are saved independently while the turn runs. The final
+answer is saved when the turn stops, using the file selected for that turn.
+`!egg keep` explicitly flushes a finished turn before opening an independent
+chat. Read-only turns are discarded instead of saved.
 `private` is a profile name: existing memory is still sent to Codex.
 
 If a chat ends before its final answer, Eggshell can preserve terminal tool

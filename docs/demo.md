@@ -120,6 +120,10 @@ not measure its effect on tokens or failures.
 
 ## Try the workflow in your project
 
+**[Try the public two-chat sample](try-it.md)** for exact prompts, an offline
+Python project, and checks that distinguish saving from actual delivery. Or use
+your own project with the steps below.
+
 After [installation](../README.md#install), initialize a project with `egg init`.
 
 1. Ask a Codex chat: **“Find how configuration is loaded and identify the relevant tests.”**

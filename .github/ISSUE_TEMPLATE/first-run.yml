@@ -1,0 +1,54 @@
+name: First-run feedback
+description: Tell us where your first two-chat trial worked or stopped
+title: "First run: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Eggshell. Successful runs and partial failures are both useful.
+        Try the public sample at https://github.com/momonpya/eggshell/blob/main/docs/try-it.md.
+        Keep credentials, private prompts, personal paths, and raw `.egg` contents out of this public issue.
+  - type: dropdown
+    id: result
+    attributes:
+      label: How far did you get?
+      options:
+        - Relevant prior work arrived and the follow-up task completed
+        - Relevant prior work arrived but the follow-up task had a problem
+        - Work was saved but I could not find a relevant handoff
+        - I could not confirm that work was saved
+        - Installation or hook setup blocked me
+        - I have a usage question
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Codex client and version; Eggshell release or commit if known.
+      placeholder: "macOS ARM64; Codex CLI ...; Eggshell 0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: workload
+    attributes:
+      label: What did you try?
+      options:
+        - The public two-chat sample
+        - My own project
+        - Setup only
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: What happened?
+      description: Describe the saved work, relevant handoff, or first unexpected result. A brief summary is enough.
+      placeholder: "Chat 1 saved the configuration findings. In chat 2, !egg graph showed ..."
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: What was confusing or missing?
+      description: Optional. Tell us what would have made your first run easier.

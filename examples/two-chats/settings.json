@@ -1,0 +1,4 @@
+{
+  "timeout_seconds": 8,
+  "max_attempts": 2
+}

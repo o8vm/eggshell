@@ -19,6 +19,7 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="docs/try-it.md">Try it yourself</a> ·
   <a href="docs/demo.md">30-second demo</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#evidence">Evidence</a> ·
@@ -83,6 +84,10 @@ file appears when the first turn is saved.
 
 ### Try it in two chats
 
+**[Use the small public sample](docs/try-it.md)** for copyable task prompts,
+baseline tests, and checkpoints for saved work and the delivered handoff.
+It needs no private repository. To try Eggshell in your own project:
+
 1. In a Codex chat in the initialized project, ask a real investigation question,
    such as “Find how configuration is loaded and identify the relevant tests.”
 2. Let Eggshell save tool results as the investigation progresses and the final
@@ -93,6 +98,10 @@ file appears when the first turn is saved.
 
 The leading `!` runs an Eggshell control command in Codex without a model turn.
 In a terminal, use `egg init` or `egg uninstall codex` without the `!`.
+
+**[Tell us how your first run went](https://github.com/momonpya/eggshell/issues/new?template=first-run.yml)**—
+whether it worked or stopped at setup, saving, or delivery. A short report helps
+us improve the steps that get in your way.
 
 Eggshell journals each tool result before searching for related work. A separate
 writer saves those observations to `.egg` while the turn is still running; the

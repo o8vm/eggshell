@@ -33,3 +33,5 @@ jobs:
         run: |
           sh -n install.sh
           sh -n plugins/eggshell/bin/egg
+      - name: Check two-chat sample
+        run: python3 -m unittest discover -s examples/two-chats -v
