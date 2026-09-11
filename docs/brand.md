@@ -24,7 +24,8 @@ All canonical assets live in [`docs/assets/brand`](assets/brand/). Use the suppl
 | [Dark app icon](assets/brand/eggshell-app-icon-dark-1024.png) | App icon source and square avatars. |
 | [GitHub social preview](assets/brand/github-social-preview-1280x640.png) | Repository social preview and link cards. |
 | [GitHub social preview source](assets/brand/github-social-preview-1280x640.svg) | Editable layout source for regenerating the PNG without altering the logo. |
-| [Cross-chat handoff](assets/brand/cross-chat-handoff.svg) | README hero showing what moves between independent chats. |
+| [Recorded walkthrough](demo.md) | README animation, static overview, and shareable 30-second MP4 based on the LLVM study. |
+| [Cross-chat handoff](assets/brand/cross-chat-handoff.svg) | Illustrative diagram showing what moves between independent chats. |
 | [How it works](assets/brand/how-it-works.svg) | Three-step product explanation for documentation and presentations. |
 
 ## Primary lockup

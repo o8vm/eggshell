@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "title": "Recorded LLVM two-chat walkthrough",
+  "measurement_record": "llvm-follow-up.json",
+  "presentation": "Edited English summary and translations of historical records; not a screen recording, new benchmark, or direct comparison with another memory product.",
+  "illustrated_trial": 1,
+  "selection_rule": "The first completed trial in the published measurement record, not a selected lowest-token or highest-quality run.",
+  "preceding_answer": {
+    "sha256": "b9e85228e845a874288e2f00e82798d5370b0c98ee6d64268cc679f0d27caa81",
+    "line_ranges": [[52, 60], [153, 156]],
+    "summary": "Target calculation, host toolchain construction, cache keys, and per-toolchain argument translation were findings available to the next task."
+  },
+  "first_prompt_handoff": {
+    "hook_event": "UserPromptSubmit",
+    "output_json_sha256": "b4e7e320fed0c00a6c6dbd72eaa8c494e02675ecebc4f2a9d3f880dc7dceef77",
+    "payload_field": "hookSpecificOutput.additionalContext",
+    "observation": "The payload included the preceding answer and supporting tool evidence under the default continuation checklist."
+  },
+  "follow_up_answer": {
+    "sha256": "3427b803174c1771b1f98008ffd1bbf486817c29467f78bfa05b4e7296fb73c7",
+    "excerpts": [
+      {
+        "line_range": [3, 6],
+        "kind": "English translation",
+        "text": "Reused: computeTargetTriple determines the target triple, which is used to select and cache the toolchain. Per-toolchain arguments are constructed through steps including TranslateXarchArgs."
+      },
+      {
+        "line_range": [8, 26],
+        "kind": "English summary",
+        "text": "New checks inspected SPIR-V language handling, Darwin and OpenMP argument forwarding, and clang-cl inputs. A candidate mismatch between usesInput and BuildInputs remained to be dynamically verified."
+      },
+      {
+        "line_range": [28, 36],
+        "kind": "English summary",
+        "text": "Runtime tests were unavailable in the fixed snapshot. The source was left unchanged and the candidate remained open."
+      }
+    ]
+  },
+  "verification": {
+    "raw_receipts_checked": 14,
+    "receipt_scope": "Preceding investigation, fresh reference, ten completions, and two failures.",
+    "raw_answers_checked": 12,
+    "answer_scope": "Preceding investigation, fresh reference, and ten completions.",
+    "checks": [
+      "SHA-256 matches the published receipt and answer hashes.",
+      "Each receipt total equals input_tokens + output_tokens.",
+      "All 13 follow-up receipts match the published valid status and token counts.",
+      "Completed and failed totals reproduce both published means and reductions.",
+      "Per-trial quality labels reproduce the 6 / 3 / 1 breakdown.",
+      "The first prompt handoff contains the preceding answer."
+    ],
+    "limitation": "Verification checks recorded accounting and provenance. It does not rerun the model trials or establish a causal count of avoided operations."
+  }
+}

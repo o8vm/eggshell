@@ -19,6 +19,7 @@
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="docs/demo.md">30-second demo</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#evidence">Evidence</a> ·
   <a href="#control-and-inspection">Controls</a> ·
@@ -26,7 +27,18 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/brand/cross-chat-handoff.svg" alt="Eggshell carries useful prior work from one Codex chat to an independent chat, together with the work still left to do" width="100%">
+  <a href="docs/demo.md">
+    <picture>
+      <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/demo/overview.svg">
+      <img src="docs/assets/demo/walkthrough.gif" alt="Recorded LLVM walkthrough: investigate in one chat, reuse findings in another, check new questions, and compare tokens and answer quality. All attempts used 82% fewer follow-up tokens per completion; six answers were usable, three needed minor corrections, and one needed a substantive correction. One task and one fresh reference, with prior work excluded." width="100%">
+    </picture>
+  </a>
+</p>
+
+<p align="center">
+  <a href="docs/demo.md">Read the recorded walkthrough</a> ·
+  <a href="docs/assets/demo/walkthrough.mp4">Watch the 30-second video</a> ·
+  <a href="docs/assets/demo/overview.svg">Static version</a>
 </p>
 
 Eggshell is a local memory plugin for Codex. It saves work from one chat and
@@ -34,10 +46,11 @@ makes relevant results available to a separate chat: repository searches,
 commands, documentation findings, and the conclusions drawn from them.
 It is useful when you return to related work in the same project.
 
-For example, one chat finds the call sites for an API migration and discovers
-that the full test suite times out. A new chat can use those findings to update
-the call sites and choose a focused check. You ask ordinary questions; Eggshell
-selects prior work automatically.
+In the [recorded LLVM walkthrough](docs/demo.md), one chat maps how Clang chooses
+a toolchain. A new chat reuses those findings to investigate language and target
+edge cases, and reports what remains unverified. You ask ordinary questions;
+Eggshell selects prior work automatically. The walkthrough is an edited English
+summary of the study, with links to its measurement record.
 
 In our LLVM follow-up experiment, Eggshell used **about 80% fewer tokens than
 starting fresh**, with **9 of 10 answers needing no substantive correction**.
