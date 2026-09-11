@@ -11,10 +11,14 @@ identifiers, and the working directory. The stable hook API does not expose
 hidden chain-of-thought. Eggshell does not scrape Codex's private transcript.
 
 The active turn is staged under the local Eggshell data root described below.
-A finished turn is saved only to the single `.egg` file selected by the current
-profile. If a turn is interrupted before its final response, only terminal tool
-outcomes already observed by hooks may be saved; the parent task stays open. Read-only and off profiles are available, and `!egg drop` discards
-the staged turn before it is saved.
+In a writable profile, observed tool results are journaled and queued for saving
+to the single `.egg` file selected by that profile while the turn is still
+running. The final answer is queued when the turn stops. If the turn is
+interrupted, already observed tool outcomes can still be saved; the parent task
+stays open until a final outcome is available. Read-only and off profiles are
+available. `!egg drop` clears the active turn but does not erase saved
+observations or cancel queued commits. It is not a way to retract data that a
+hook has already recorded.
 
 ## Network access
 
