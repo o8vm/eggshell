@@ -25,5 +25,9 @@ jobs:
         run: lake build eggshell eggshell_tests
       - name: Test
         run: EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
+      - name: Check plugin package
+        run: python3 tests/test_plugin_package.py
       - name: Check installer syntax
-        run: sh -n install.sh
+        run: |
+          sh -n install.sh
+          sh -n plugins/eggshell/bin/egg

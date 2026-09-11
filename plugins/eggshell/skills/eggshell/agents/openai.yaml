@@ -1,0 +1,7 @@
+interface:
+  display_name: "Eggshell"
+  short_description: "Set up and inspect local Codex memory"
+  default_prompt: "Use $eggshell to set up local memory for this Codex project."
+policy:
+  products:
+    - "CODEX"

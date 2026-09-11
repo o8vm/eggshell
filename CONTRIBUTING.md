@@ -30,3 +30,26 @@ Keep changes focused, remove replaced code, update user documentation with the
 same change, and explain the invariant being preserved. Do not commit models,
 vector caches, `.egg` authorities, generated build output, credentials, or
 private benchmark transcripts.
+
+## Plugin packaging
+
+`plugins/eggshell` contains the directory package's skill, hooks, and portable
+launcher. The standalone installer embeds its manifest and hooks in
+`Eggshell/Install.lean`; the existing test enforces that those definitions match.
+
+Run `python3 tests/test_plugin_package.py` after building the executable when
+changing package setup or runtime installation. These checks exercise checksum
+rejection, archive validation, missing-runtime hooks, and preservation of
+existing plugin registration and memory during runtime-only installation.
+
+The manually dispatched **Plugin package** workflow builds and tests all four
+platform runtimes, then runs `scripts/package_plugin.py`. It publishes a small
+`eggshell-codex-plugin.zip` and runtime archives whose names include their content
+hashes on the release matching the plugin version. Existing standalone release
+archives and the release tag are preserved. The ZIP pins the exact runtime
+URLs and SHA-256 values; hooks never download dependencies.
+
+A package build is separate from OpenAI directory submission and approval.
+Before publishing a listing, inspect the uploaded package, confirm the hooks
+and helpers survive normalization, and test setup and a related two-chat handoff
+in the target Codex environment.

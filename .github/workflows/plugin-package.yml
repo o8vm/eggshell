@@ -1,0 +1,72 @@
+name: Plugin package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-aarch64
+          - os: macos-15
+            target: macos-aarch64
+          - os: macos-15-intel
+            target: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+      - name: Build and test
+        run: |
+          lake build eggshell eggshell_tests
+          EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
+          python3 tests/test_plugin_package.py
+      - name: Package runtime
+        run: |
+          mkdir -p dist
+          tar -czf "dist/eggshell-${{ matrix.target }}.tar.gz" -C .lake/build/bin eggshell
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.target }}
+          path: dist/*.tar.gz
+          retention-days: 7
+  bundle:
+    needs: runtime
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: runtime-*
+          merge-multiple: true
+          path: dist/runtimes
+      - name: Assemble plugin
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("plugins/eggshell/.codex-plugin/plugin.json"))["version"])')"
+          python3 scripts/package_plugin.py --runtime-dir dist/runtimes --output dist/publish --release "v$version"
+      - name: Publish pinned runtime assets and plugin ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("plugins/eggshell/.codex-plugin/plugin.json"))["version"])')"
+          gh release view "v$version" --repo "$GITHUB_REPOSITORY"
+          gh release upload "v$version" dist/publish/*.tar.gz dist/publish/eggshell-codex-plugin.zip --clobber --repo "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eggshell-directory-package
+          path: |
+            dist/publish/eggshell-codex-plugin.zip
+            dist/publish/runtime.json
+          retention-days: 30

@@ -306,10 +306,9 @@ def removeCodexMarketplace (layout : Layout) : IO Unit := do
     if output.exitCode != 0 then
       throw (IO.userError s!"codex plugin marketplace remove failed: {output.stderr}")
 
-def installCodex : IO String := do
+def installRuntime : IO String := do
   let layout ← installLayout
   validatePayload layout
-  validateMarketplace layout.marketplace
   Plugin.Daemon.shutdown
   let executable ← IO.appPath
   copyExecutable executable layout.executable
@@ -319,6 +318,12 @@ def installCodex : IO String := do
   if let some parent := layout.payloadMarker.parent then IO.FS.createDirAll parent
   IO.FS.writeFile layout.payloadMarker ownerMarkerContents
   MiniLM.install layout.root
+  pure s!"installed Eggshell runtime at {layout.root} with CPU MiniLM"
+
+def installCodex : IO String := do
+  let layout ← installLayout
+  validateMarketplace layout.marketplace
+  let _ ← installRuntime
   if ← layout.plugin.pathExists then IO.FS.removeDirAll layout.plugin
   IO.FS.createDirAll (layout.plugin / ".codex-plugin")
   IO.FS.createDirAll (layout.plugin / "hooks")
@@ -351,12 +356,15 @@ def uninstallCodex : IO String := do
   if ← layout.bootstrapMarker.pathExists then IO.FS.removeFile layout.bootstrapMarker
   pure "uninstalled Eggshell Plugin and MiniLM runtime; .egg authorities, config, and staged data were preserved"
 
-def command (installing : Bool) : IO UInt32 := do
+def runCommand (action : IO String) : IO UInt32 := do
   try
-    IO.println (← if installing then installCodex else uninstallCodex)
+    IO.println (← action)
     pure 0
   catch error =>
     IO.eprintln s!"eggshell: {error}"
     pure 1
+
+def command (installing : Bool) : IO UInt32 :=
+  runCommand (if installing then installCodex else uninstallCodex)
 
 end Eggshell.Install

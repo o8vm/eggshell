@@ -25,6 +25,19 @@ Run `egg init` in each project that should have its own memory. It creates:
 The `.egg` file is created on the first save. Initialization refuses to overwrite
 an existing configuration. Ordinary prompts require no special format.
 
+### Installation from a plugin package
+
+The packaged plugin includes an Eggshell setup and inspection skill. After
+installing the package in Codex, ask it to set up Eggshell. The bundled setup
+helper downloads the runtime for your platform, checks the package's pinned
+SHA-256, and installs the runtime without registering another plugin. Review
+`/hooks` after setup and start a new chat.
+
+If migrating from the standalone installer, remove its `eggshell@eggshell`
+plugin registration before enabling the packaged hooks. Retain the runtime and
+saved `.egg` files. The setup skill checks this migration step. Removing the
+packaged plugin through Codex leaves local runtime and saved data in place.
+
 ### Custom installation location
 
 The default installation prefix is `~/.local`. To use another location:

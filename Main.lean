@@ -5,7 +5,7 @@ public import Eggshell.Install
 @[expose] public section
 
 def usage : String :=
-  "usage: eggshell install codex\n       eggshell uninstall codex\n       egg init\n       egg [COMMAND]"
+  "usage: eggshell install codex\n       eggshell install runtime\n       eggshell uninstall codex\n       egg init\n       egg [COMMAND]"
 
 def main (arguments : List String) : IO UInt32 := do
   match arguments with
@@ -15,8 +15,10 @@ def main (arguments : List String) : IO UInt32 := do
       Eggshell.Plugin.Daemon.shutdown
       pure 0
   | ["egg", "init"] => Eggshell.Install.initCommand
+  | ["egg", "uninstall", "codex"] => Eggshell.Install.command false
   | "egg" :: rest => Eggshell.Plugin.eggControl rest
   | ["init"] => Eggshell.Install.initCommand
+  | ["install", "runtime"] => Eggshell.Install.runCommand Eggshell.Install.installRuntime
   | ["install", "codex"] => Eggshell.Install.command true
   | ["uninstall", "codex"] => Eggshell.Install.command false
   | _ =>
