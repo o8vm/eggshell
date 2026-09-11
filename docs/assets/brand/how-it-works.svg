@@ -32,10 +32,10 @@
       <circle cx="732" cy="244" r="17" fill="#e9b872"/>
     </g>
     <rect x="488" y="337" width="143" height="40" rx="20" fill="#e8f4e9"/>
-    <text x="559" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#245b31">Union: same work</text>
+    <text x="559" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#245b31">Match prior work</text>
     <rect x="643" y="337" width="151" height="40" rx="20" fill="#f7e9d3"/>
     <text x="718" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#714a14">Follow outcomes</text>
-    <text x="640" y="408" text-anchor="middle" font-size="15" fill="#5b5145">Duplicates collapse for this request</text>
+    <text x="640" y="408" text-anchor="middle" font-size="15" fill="#5b5145">Connect work to its outcomes</text>
 
     <path d="M837 266h35m-11-11 12 11-12 11" fill="none" stroke="#171512" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 

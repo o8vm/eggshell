@@ -29,150 +29,118 @@
   <img src="docs/assets/brand/cross-chat-handoff.svg" alt="Eggshell carries useful prior work from one Codex chat to an independent chat, together with the work still left to do" width="100%">
 </p>
 
-Eggshell gives Codex a local memory that works across separate chats. When one
-chat searches a repository, reads documentation, runs a command, or reaches a
-useful conclusion, Eggshell records the work and its outcome. A later related
-chat receives that prior work before acting, so it can continue instead of
-starting from zero.
+Eggshell is a local memory plugin for Codex. It saves work from one chat and
+makes relevant results available to a separate chat: repository searches,
+commands, documentation findings, and the conclusions drawn from them.
+It is useful when you return to related work in the same project.
 
-For example, one chat may find every use of an old API and discover that the
-full test suite times out. A separate chat can receive both results, update the
-call sites, and choose a more focused test instead of repeating the search and
-the failed command. The chats do not share conversation history; they share only
-a local `.egg` work graph.
+For example, one chat finds the call sites for an API migration and discovers
+that the full test suite times out. A new chat can use those findings to update
+the call sites and choose a focused check. You ask ordinary questions; Eggshell
+selects prior work automatically.
 
-Nothing special is required in the prompt. Eggshell observes normal Codex work,
-keeps the data on your machine, and lets you inspect or discard every handoff.
-
-In our LLVM follow-up benchmark, Eggshell used **about 80% fewer tokens than
-starting fresh**, while keeping answers broadly usable: **9 of 10 needed no
-substantive correction**. Eggshell builds and organizes memory locally,
-**without LLM calls or additional billed tokens for memory management**.
-See [Evidence](#evidence) for the measurements and quality review.
+In our LLVM follow-up experiment, Eggshell used **about 80% fewer tokens than
+starting fresh**, with **9 of 10 answers needing no substantive correction**.
+Memory is built and organized locally, **without LLM calls or additional billed
+tokens for memory management**. These results cover one task with existing
+prior work; see [Evidence](#evidence) for the comparison and its limits.
 
 ## Install
 
-Requirements: standard Codex with Plugin hooks enabled, plus Python 3 for the
-one-time local semantic-search setup.
+You need macOS or Linux on Apple Silicon/ARM64 or x86-64, Python 3, and the Codex
+CLI available as `codex`. Your Codex client must support plugins and command
+hooks. Setup downloads the Eggshell binary and a local search model.
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
   https://raw.githubusercontent.com/momonpya/eggshell/main/install.sh | sh
+export PATH="${EGGSHELL_PREFIX:-$HOME/.local}/bin:$PATH"
 cd your-project
 egg init
 ```
 
-The installer verifies the downloaded binary, installs the Codex Plugin and
-`egg` command, and prepares a private local search runtime. `egg init` creates a
-project config that declares the ignored `.eggs/work.egg` path. The authority
-file itself is created only when the first kept turn is promoted. Review and
-enable the installed hooks through Codex's `/hooks` screen.
+The installer checks the release checksum, installs the plugin and `egg`
+command, and prepares local search. Add the same PATH setting to your shell
+configuration if needed. In Codex, review and enable Eggshell's hooks through
+`/hooks`, then start a new chat in the project.
 
-The installation is relocatable. This keeps the executable, Plugin source,
-MiniLM runtime/model, default state, and global config off a quota-limited home
-directory:
+`egg init` creates `.eggshell.toml` and configures `.eggs/work.egg`, a local file
+of saved work and outcomes. The `.eggs` directory is ignored by Git. The work
+file appears when the first turn is saved.
 
-```sh
-export EGGSHELL_PREFIX=/scratch/$USER/eggshell
-# Keep this export too when Codex itself uses a relocated home:
-# export CODEX_HOME=/scratch/$USER/codex
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/momonpya/eggshell/main/install.sh | sh
-export PATH="$EGGSHELL_PREFIX/bin:$PATH"
-```
+### Try it in two chats
 
-The default prefix is `~/.local`. Codex marketplace registration and its small
-Plugin cache remain owned by Codex under its active `CODEX_HOME`; Eggshell does
-not guess that location. Override `EGGSHELL_DATA_ROOT` with another absolute
-path only when mutable Eggshell state should live outside the prefix too.
+1. In a Codex chat in the initialized project, ask a real investigation question,
+   such as “Find how configuration is loaded and identify the relevant tests.”
+2. When the answer finishes, run `!egg keep` to save that turn immediately.
+3. Open a separate Codex chat in the same project and ask a related follow-up,
+   such as “Which tests should change if we add a new configuration option?”
+4. Run `!egg graph` to inspect the prior work that was actually sent to Codex.
 
-Then use Codex normally. After a response, Eggshell holds that turn temporarily;
-it is saved when the next prompt starts unless you drop it. Eggshell does not
-require a special prompt, JSON response, footer, or planning step.
+The leading `!` runs an Eggshell control command in Codex without a model turn.
+In a terminal, use `egg init` or `egg uninstall codex` without the `!`.
 
-If a connection ends a turn before the final response, Eggshell preserves every
-terminal tool outcome it already observed and keeps the parent work open. A
-reconnect does not require `!egg drop`; operations without a terminal result are
-not invented or stored.
+During normal use, a finished turn is held temporarily until the next prompt
+saves it. This is called a **staged turn**. Use `!egg keep` to save it now or
+`!egg drop` to discard it. Save before switching to an independent chat if you
+want that chat to have the result immediately.
 
-```text
-!egg              show the active profile and staged turn
-!egg on           enable Eggshell memory and graph transport
-!egg off          disable storage and graph transport until `!egg on`
-!egg graph         show exactly what Eggshell sent to Codex
-!egg drop          discard the last staged turn
-```
-
-Run `egg init` once in each project that should keep its own work graph. See the
-[Plugin guide](docs/codex-plugin.md) for shared work files, read-only profiles,
-manual graph selection, recovery, and uninstall behavior.
+For shared work files, custom install locations, and troubleshooting, see the
+[Plugin guide](docs/codex-plugin.md).
 
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/brand/how-it-works.svg" alt="A normal Codex chat records work and outcomes; Eggshell connects duplicate work in a local graph; an independent chat receives prior work and what remains" width="100%">
+  <img src="docs/assets/brand/how-it-works.svg" alt="Codex work and outcomes are saved locally; relevant prior work is selected for a separate chat" width="100%">
 </p>
 
-1. Codex Plugin hooks record the prompt, supported tool operations whose terminal
-   results Codex exposes, and the final answer. Empty outputs and reported
-   timeouts or denials remain useful outcomes; Eggshell never invents a result
-   for an operation with no terminal hook.
-2. Before a related turn acts, Eggshell finds relevant work in the selected
-   `.egg` files. It checks again when a proposed tool operation makes the current
-   work more specific.
-3. Eggshell sends a compact graph containing the earlier work, what happened,
-   and an open instruction to finish everything that is still needed.
-4. Codex decides what can be reused, what needs rechecking, and what remains to
-   be done. Eggshell never treats a past answer as unquestionable truth.
-5. The new turn is held before storage. You may keep it, redirect it to another
-   work file, or drop it.
+1. **Record work and outcomes.** Codex hooks observe the current request,
+   supported tool inputs and results, and the final answer. A timeout or empty
+   result can be useful evidence too.
+2. **Select relevant history.** Local text matching and MiniLM embeddings find
+   related work in the files you allow Eggshell to read. The graph connects
+   requests to outcomes and their supporting operations.
+3. **Continue the task.** Eggshell sends selected prior work as a **handoff**:
+   context for the new chat. Codex is asked to reuse supported findings, check
+   open or changed facts, and report what it reused, checked, or left unverified.
+4. **Save the new result.** The finished turn is staged for you to keep or drop.
 
-Eggshell is designed not to break Codex: if the Plugin is unavailable, the chat
-continues normally, and an incomplete turn is not written to the work graph.
+Past results remain historical evidence. A changed source file or condition may
+require a new check; an old success is not proof that today's task is complete.
+Eggshell preserves the earlier outcome so the agent can explain what changed.
 
-### Why this is more than retrieval
+Search and graph processing run locally. Eggshell does not ask an LLM to write
+summaries, classify memories, or maintain the graph. Selected memory and the
+agent's subsequent work still consume the normal Codex input and output tokens.
+See the [architecture reference](docs/architecture.md) for matching, graph
+operations, and the Lean core.
 
-A normal retrieval system returns text that looks related to the new prompt.
-Eggshell stores direction: **Work → Outcome**, plus how smaller pieces of work
-belong to a larger turn.
+## Control and inspection
 
-Two graph operations make that history smaller and more useful:
-
-- **Union** temporarily recognizes differently worded nodes as the same work for
-  the current request. It does not rewrite the saved history.
-- **Saturation** follows the newly connected Work → Outcome paths until no more
-  relevant prior work can be reached.
-
-The result is not a pile of similar passages. Codex receives the shortest
-selected work graph plus an open remainder: the prior outcomes to use, and the
-work that still has to be completed.
-
-## What gets carried across chats
+Run these inside the relevant Codex chat:
 
 ```text
-Earlier chat
-  searched the repository  → found three relevant files
-  ran the full test suite   → timed out
-  checked the migration doc → found the replacement API
-
-Independent later chat
-  receives those outcomes
-  avoids blind repetition
-  continues with the work that remains
+!egg                  show active settings and staged turn
+!egg keep             save the staged turn now
+!egg drop             discard the staged turn
+!egg diff             preview what would be saved
+!egg graph            show the exact handoff sent to Codex
+!egg why              explain the handoff selection
+!egg inspect          show resolved storage paths
+!egg off              disable memory and discard the staged turn
+!egg on               enable memory again
+!egg next private     read memory without saving the next turn
+!egg next off         disable memory for the next turn
 ```
 
-| Capability | What you get |
-| --- | --- |
-| Normal Codex | Ordinary prompts and tools; no Eggshell-specific model output. |
-| Memory across chats | Related independent chats can share one growing `.egg`. |
-| Visible context | `!egg graph` shows the exact handoff sent to Codex. |
-| Storage control | Profiles choose which work files may be read and where a new turn may be saved. |
-| Review before save | Preview, keep, redirect, or drop a turn before it becomes shared memory. |
-| Checked core rules | Lean checks that graph merging and selection preserve the recorded work and evidence. |
+Profiles specify which work files can be read and where new work is saved.
+The default `work` profile reads and writes the project's work file. `private`
+is read-only; it still sends relevant saved work to Codex. `off` disables both
+recording and handoffs. [More controls and configuration](docs/codex-plugin.md).
 
 ## Evidence
 
-### Ten LLVM trials with the default handoff
+### One LLVM follow-up task, ten completed trials
 
 We repeated one investigation of Clang target and language options that affect
 toolchain selection or forwarded arguments. Each trial started in an independent
@@ -225,76 +193,21 @@ or superiority over other memory methods.
 
 </details>
 
-## Control and inspection
-
-Authority commands are shell commands, not model prompts, so they do not consume
-a model turn.
-
-```text
-!egg                  show profile, read set, write target, and staged turn
-!egg on               enable memory, staging, and graph transport
-!egg off              disable them until `!egg on`; discard any staged turn
-!egg use work         use the writable project profile
-!egg next private     make the next turn read-only
-!egg next off         disable Eggshell for the next turn
-!egg keep             promote the staged turn
-!egg drop             discard the staged turn
-
-!egg graph             show the frozen handoff sent to this turn
-!egg why               explain why it was selected
-!egg diff              preview the staged graph change
-!egg find TEXT         find a Value in selected authorities
-!egg class VALUE       inspect its equivalence class
-!egg next graph none   send no Eggshell context on the next turn
-!egg next graph VALUE  send a graph slice chosen by the user
-```
-
-The same session relies on native history and does not echo its own stored turn
-before compaction. Independent sessions can receive relevant work from `.egg`.
-After compaction, graph that may have left native history becomes eligible for
-restoration.
-
 ## Privacy
 
-Eggshell has no hosted service, telemetry, analytics, or account system. Prompts,
-tool results, embeddings, and `.egg` files remain local after installation. The
-one-time setup downloads the release, pinned Python package, and MiniLM model.
-Profiles can read without writing, and `!egg off` disables staging and graph
-transport until `!egg on`; enabled turns are staged before storage.
+Eggshell has no hosted service, telemetry, or account system. Saved work,
+embeddings, and search processing stay on your machine. **Selected prior work
+is passed to Codex as model input** and is handled under the settings and terms
+of your Codex provider, just like other context in the chat.
 
-See [PRIVACY.md](PRIVACY.md) for observed hook data, exact storage locations,
-network behavior, and deletion. Report vulnerabilities through GitHub's private
-channel described in [SECURITY.md](SECURITY.md).
+Installation downloads the release, Python dependencies, and MiniLM model.
+Work files may contain prompts, source code, and tool results; choose carefully
+which files a project can read. Read-only mode prevents saving new work but
+does not prevent sending existing memory to Codex.
 
-<details>
-<summary><strong>For implementers: the semantic core</strong></summary>
-
-Natural language, code, tool output, patches, sources, and receipts are ordinary
-Values:
-
-```text
-Value = Atom(bytes) | Apply(operator, references)
-Ref   = Semantic(value) | Exact(value)
-```
-
-The operator vocabulary is closed:
-
-```text
-All · Outcome · Occurrence · Inquiry · Receipt
-```
-
-Roles come from relation position rather than permanent `Task`, `Result`,
-`Message`, or `Evidence` types. Scoped equality and positive work relations
-select prior work while preserving one open handoff.
-
-Lean proves quotient equivalence and Exact preservation. Extract checks selected
-`All`, completed `Outcome`, and advisory `Outcome` edges against the source graph
-and active policy. A connection theorem proves that Matcher-driven completed
-edges came from an existing Outcome and passed the forward reusable-work gate.
-Executable tests cover Run-local Union, Demand saturation, concurrent promotion,
-and Plugin lifecycle behavior.
-
-</details>
+See [PRIVACY.md](PRIVACY.md) for storage locations, network behavior, and
+removal. Report vulnerabilities through the private channel in
+[SECURITY.md](SECURITY.md).
 
 ## Development
 
@@ -312,6 +225,7 @@ To install a source build:
 lake build eggshell
 EGGSHELL_PREFIX=/absolute/install/root \
   .lake/build/bin/eggshell install codex
+export PATH="/absolute/install/root/bin:$PATH"
 egg init
 ```
 

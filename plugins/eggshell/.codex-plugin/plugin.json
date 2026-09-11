@@ -1,7 +1,7 @@
 {
   "name": "eggshell",
   "version": "0.1.0",
-  "description": "Reduce repeated Codex work with a persistent, user-controlled work graph",
+  "description": "Carry useful work across Codex chats with local memory you control",
   "author": {
     "name": "momonpya",
     "url": "https://github.com/momonpya"
@@ -12,13 +12,13 @@
   "keywords": ["codex", "agent-memory", "work-graph", "productivity"],
   "interface": {
     "displayName": "Eggshell",
-    "shortDescription": "Continue related work without rediscovering it.",
-    "longDescription": "Eggshell records native Codex work in user-controlled .egg files, then uses Union and saturation to hand later sessions reusable outcomes and an open frontier.",
+    "shortDescription": "Local memory for Codex",
+    "longDescription": "Eggshell saves requests, tool results, and conclusions in local .egg files. Related Codex chats receive selected prior work and instructions to reuse supported findings, check changed facts, and report what remains unverified. Memory is organized locally without additional LLM calls. Requires macOS or Linux, Python 3, and Codex command hooks.",
     "developerName": "momonpya",
     "category": "Productivity",
     "capabilities": [],
     "websiteURL": "https://github.com/momonpya/eggshell",
-    "brandColor": "#F7F3EA",
+    "brandColor": "#6B6256",
     "defaultPrompt": [
       "Continue this task from relevant prior work without repeating completed investigation."
     ]

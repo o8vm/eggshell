@@ -12,22 +12,22 @@ tool output, `.egg` contents, credentials, or repository data in a report that
 others can see.
 
 Include the affected commit or release, operating system, Codex version, the
-smallest safe reproduction, and the expected authority boundary. Redact secrets
-and proprietary content. You should receive an acknowledgement within seven
+smallest safe reproduction, and the expected file-access or memory-isolation
+boundary. Redact secrets and proprietary content. You should receive an acknowledgement within seven
 days.
 
 ## Security boundary
 
 Eggshell observes Codex hook events, starts a loopback-only daemon, and writes
-only to the authority selected by the user. Semantic retrieval is advisory;
-similarity alone cannot create persistent equality or complete work. See
+saved work only to the `.egg` file selected by the user. Semantic retrieval is
+advisory; similarity alone cannot create persistent equality or complete work. See
 [PRIVACY.md](PRIVACY.md) for data locations, network behavior, and removal.
 
 Auto-discovered project configuration cannot name an executable semantic
 matcher. Custom provider commands are accepted only from the user-owned global
 configuration file.
 
-Project configuration may declare only authority files below its own root and
+Project configuration may declare only work files below its own root and
 may reference only its own declarations. Eggshell rejects symbolic links and
-non-regular authority files, decodes an existing `.egg` before hardening its
-permissions, and creates a missing authority only during an explicit write.
+non-regular work files, decodes an existing `.egg` before hardening its
+permissions, and creates a missing work file only during an explicit write.
