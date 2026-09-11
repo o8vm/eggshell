@@ -10,10 +10,12 @@ def usage : String :=
 def main (arguments : List String) : IO UInt32 := do
   match arguments with
   | ["codex-hook"] => Eggshell.Plugin.Daemon.hookClient
-  | ["codex-daemon"] => Eggshell.Plugin.Daemon.run
   | ["codex-daemon", "shutdown"] => do
       Eggshell.Plugin.Daemon.shutdown
       pure 0
+  | ["codex-daemon", session] => Eggshell.Plugin.Daemon.run session
+  | ["codex-worker", role] => Eggshell.Plugin.Worker.run role
+  | ["codex-rpc", kind] => Eggshell.Plugin.Daemon.rpcClient kind
   | ["egg", "init"] => Eggshell.Install.initCommand
   | ["egg", "uninstall", "codex"] => Eggshell.Install.command false
   | "egg" :: rest => Eggshell.Plugin.eggControl rest

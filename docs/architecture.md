@@ -18,6 +18,9 @@ rewriting saved history. **Saturation** follows the resulting connections to
 find reachable prior outcomes. Semantic similarity provides advisory context;
 it cannot establish that an operation is already complete.
 
+Hook persistence, cancellation, proofs, and fault-injection tests are described
+in [Hook lifecycle and persistence guarantees](hook-lifecycle.md).
+
 ## Local search
 
 Search considers both the recorded request and its outcome. Completed turns
@@ -66,8 +69,10 @@ relevant existing Outcome subtrees as advisory context; its candidates cannot
 create Union, complete Work, suppress a tool call, persist authority, or rewrite
 Exact provenance.
 
-Eggshell keeps one provider process alive across hook calls and serializes
-access from concurrent Codex sessions. The protocol has two NDJSON messages.
+Each chat has its own manager and persistent search worker. The built-in
+provider and vector database belong to that chat; model weights are shared.
+Search never holds the state or save lock, and a busy search does not queue
+other hooks behind it. The protocol has two NDJSON messages.
 After a turn is sealed, Eggshell queues immutable Work for background indexing:
 
 ```json
@@ -111,10 +116,9 @@ cosine top-k search over cached MiniLM embeddings. It receives Work and Outcome
 text plus content IDs, but never `.egg` files. If it exits, stalls, or returns
 invalid JSON, Eggshell drops that result and continues with ordinary matching.
 
-The cache is not authority. Stop may queue a staged Work that the user later
-drops; that leaves only an unused disposable vector. Active candidates always
-come from the selected `.egg` graph, so cached data cannot re-enter authority by
-itself. The installer downloads the default model rather than committing it to
+The cache is not authority. Candidates come from the selected `.egg` graph
+and the chat's journaled native observations whose save target is among the
+selected read files. A cached vector cannot create evidence by itself. The installer downloads the default model rather than committing it to
 this repository. An explicit opt-out or unavailable provider falls back to the
 ordinary matcher without stopping Codex.
 

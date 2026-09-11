@@ -364,44 +364,56 @@ def saveAtomic (path : System.FilePath) (graph : Graph) : IO Unit := do
   rejectSymlinkAncestors path
   if let some parent := path.parent then
     if !(← parent.pathExists) then privateDirectory parent
-  let temporary := System.FilePath.mk (path.toString ++ ".tmp")
+  -- A killed writer may leave an incomplete temporary file. Give every
+  -- attempt its own sibling so recovery never waits for or trusts that file.
+  let temporary := System.FilePath.mk (path.toString ++ ".tmp-" ++
+    toString (← IO.Process.getPID) ++ "-" ++ toString (← IO.monoNanosNow))
   rejectSymlinkAncestors temporary
   if (← symlinkMetadata? temporary).isSome then
     throw (IO.userError s!"temporary authority path already exists: {temporary}")
   let encoded ← match encode graph with
     | .ok text => pure text
     | .error message => throw (IO.userError message)
-  IO.FS.writeFile temporary encoded
-  privateFile temporary
-  IO.FS.rename temporary path
-  privateFile path
+  try
+    IO.FS.writeFile temporary encoded
+    privateFile temporary
+    IO.FS.rename temporary path
+    privateFile path
+  finally
+    if (← symlinkMetadata? temporary).isSome then IO.FS.removeFile temporary
 
 def authorityForPath (path : System.FilePath) : Value :=
   .text ("egg authority " ++ path.normalize.toString)
 
 def lockPath (path : System.FilePath) : System.FilePath :=
-  .mk (path.toString ++ ".lock")
+  .mk (path.toString ++ ".guard")
 
-def acquireLock (path : System.FilePath) : Nat → IO Unit
+def acquireLock (handle : IO.FS.Handle) (path : System.FilePath) : Nat → IO Unit
   | 0 => throw (IO.userError s!"timed out waiting for {lockPath path}")
   | retries + 1 =>
-      try IO.FS.createDir (lockPath path)
-      catch _ =>
-        IO.sleep 25
-        acquireLock path retries
+      do
+        if ← handle.tryLock then return
+        IO.sleep 5
+        acquireLock handle path retries
 
-def withLock (path : System.FilePath) (action : IO α) : IO α := do
+def withLockWithin (path : System.FilePath) (waitMs : Nat) (action : IO α) : IO α := do
   rejectSymlinkAncestors path
-  if let some parent := (lockPath path).parent then
+  -- A kernel-owned lock is released even if its owner is killed. Never unlink
+  -- this file: doing so would create two independent lock inodes.
+  let guard := lockPath path
+  rejectSymlinkAncestors guard
+  if let some parent := guard.parent then
     if !(← parent.pathExists) then privateDirectory parent
-  acquireLock path 400
+  let handle ← IO.FS.Handle.mk guard .append
+  privateFile guard
+  acquireLock handle path (waitMs / 5 + 1)
   try
-    let result ← action
-    IO.FS.removeDir (lockPath path)
-    pure result
-  catch error =>
-    try IO.FS.removeDir (lockPath path) catch _ => pure ()
-    throw error
+    action
+  finally
+    handle.unlock
+
+def withLock (path : System.FilePath) (action : IO α) : IO α :=
+  withLockWithin path 1000 action
 
 def create (path : System.FilePath) : IO Graph :=
   withLock path do

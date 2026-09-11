@@ -80,6 +80,7 @@ structure Handoff where
   coveredFragments : List String
   /-- Only completed local Work may erase the proposed native operation. -/
   blocksCurrent : Bool
+  deriving Lean.ToJson, Lean.FromJson
 
 def readable (value : Value) : String :=
   match Matcher.atomText? value with
@@ -390,7 +391,7 @@ def transportSlices (staged : List Value) (selected : List Selected) :
     List TransportSlice :=
   (groupOwners selected).filterMap (rawSlice staged)
 
-/-- One newly completed grounded projection may control planning once per context epoch. -/
+/-- One newly completed grounded projection may control planning once per turn. -/
 def deliveryKey (selected : Selected) : String :=
   /-
   Rewording the current Work is not progress, but newly grounded result bytes
@@ -519,7 +520,7 @@ def renderAutomatic (staged : List Value) (budget : Nat) (current : String)
       "check and does not justify a no-fix conclusion. Keep the original request's exact " ++
       "distinctions and cite the evidence used.\n" ++
       "END OPEN WORK\nEND EGGSHELL PRIOR WORK"
-    let slices := transportSlices staged transportable
+    let slices := transportSlices (if stagedVisible then staged else []) transportable
     /-
     Budgeting reserves the complete structural shell before admitting whole
     Outcome owners.  Bodies are never cut into matcher-selected prose.  A body
@@ -592,14 +593,14 @@ def automaticHandoff (selection : Config.Selection) (current : String)
   else
     let cached ← cachedWorkspace selection
     let composite := cached.composite
-    let stagedGraph := WorkGraph.fromValues staged
+    let stagedGraph := WorkGraph.fromValues (staged.filter (!composite.values.contains ·))
     let graph : WorkGraph := {
       all := cached.graph.all ++ stagedGraph.all
       outcomes := cached.graph.outcomes ++ stagedGraph.outcomes
     }
     if graph.outcomes.isEmpty then return none
     let values := (composite.values ++ staged).eraseDups
-    let corpus := if stagedGraph.outcomes.isEmpty then cached.corpus else
+    let corpus := if stagedGraph.outcomes.isEmpty && stagedGraph.all.isEmpty then cached.corpus else
       Matcher.Corpus.extend LogicalText.logicalNormalizer cached.corpus stagedGraph
     let operationWork := enforce || evidenceText.isSome
     let inquiry := Value.text current

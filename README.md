@@ -72,7 +72,8 @@ file appears when the first turn is saved.
 
 1. In a Codex chat in the initialized project, ask a real investigation question,
    such as “Find how configuration is loaded and identify the relevant tests.”
-2. When the answer finishes, run `!egg keep` to save that turn immediately.
+2. Let Eggshell save tool results as the investigation progresses and the final
+   answer when the turn stops. `!egg keep` can explicitly flush the finished turn.
 3. Open a separate Codex chat in the same project and ask a related follow-up,
    such as “Which tests should change if we add a new configuration option?”
 4. Run `!egg graph` to inspect the prior work that was actually sent to Codex.
@@ -80,10 +81,11 @@ file appears when the first turn is saved.
 The leading `!` runs an Eggshell control command in Codex without a model turn.
 In a terminal, use `egg init` or `egg uninstall codex` without the `!`.
 
-During normal use, a finished turn is held temporarily until the next prompt
-saves it. This is called a **staged turn**. Use `!egg keep` to save it now or
-`!egg drop` to discard it. Save before switching to an independent chat if you
-want that chat to have the result immediately.
+Eggshell journals each tool result before searching for related work. A separate
+writer saves those observations to `.egg` while the turn is still running; the
+final answer is saved when the turn stops. Interrupted writes remain queued and
+retry automatically. `!egg keep` can explicitly save a finished turn; `!egg drop`
+clears the active turn without removing saved observations or queued commits.
 
 For shared work files, custom install locations, and troubleshooting, see the
 [Plugin guide](docs/codex-plugin.md).
@@ -103,7 +105,8 @@ For shared work files, custom install locations, and troubleshooting, see the
 3. **Continue the task.** Eggshell sends selected prior work as a **handoff**:
    context for the new chat. Codex is asked to reuse supported findings, check
    open or changed facts, and report what it reused, checked, or left unverified.
-4. **Save the new result.** The finished turn is staged for you to keep or drop.
+4. **Save progress.** Each observed tool result is saved independently. The final
+   answer adds the parent task result; unfinished work remains open.
 
 Past results remain historical evidence. A changed source file or condition may
 require a new check; an old success is not proof that today's task is complete.
@@ -122,12 +125,12 @@ Run these inside the relevant Codex chat:
 ```text
 !egg                  show active settings and staged turn
 !egg keep             save the staged turn now
-!egg drop             discard the staged turn
+!egg drop             clear the active turn (saved work is retained)
 !egg diff             preview what would be saved
 !egg graph            show the exact handoff sent to Codex
 !egg why              explain the handoff selection
 !egg inspect          show resolved storage paths
-!egg off              disable memory and discard the staged turn
+!egg off              disable memory and clear the active turn (saved work is retained)
 !egg on               enable memory again
 !egg next private     read memory without saving the next turn
 !egg next off         disable memory for the next turn

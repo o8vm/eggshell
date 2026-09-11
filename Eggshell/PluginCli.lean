@@ -35,7 +35,7 @@ def statusLine (selection : Config.Selection) (state : ThreadState)
   let pendingText := match pending with
     | none => "none"
     | some pending =>
-        let phase := if pending.finalMessage.isSome then "sealed" else "active"
+        let phase := if pending.closed || pending.finalMessage.isSome then "sealed" else "active"
         s!"{phase}:{pending.turnId.take 8}"
   s!"egg {enabled} {state.profile} [{reads}] → {write} pending:{pendingText}"
 
@@ -124,10 +124,20 @@ def splitPersistentUnion (target : System.FilePath) (key : String) : IO UnionEdg
 def control (arguments : List String) : IO String := do
   let session ← controlSession
   withSession session fun files => do
+    if arguments == ["off"] then
+      let state := (← readState? files).getD { profile := "work" }
+      quarantine files.pending
+      writeJson files.state { state with
+        enabled := false, epoch := state.epoch + 1, offers := [],
+        nextProfile := none, nextProjection := none }
+      return "egg off (memory disabled; no graph will be stored or sent)"
     let config ← currentConfig
-    let mut state := (← (readJson? files.state : IO (Option ThreadState))).getD
+    let mut state := (← readState? files).getD
       (defaultState config)
-    let pending ← (readJson? files.pending : IO (Option PendingTurn))
+    if arguments == ["on"] &&
+        state.lastReason.startsWith "memory disabled after invalid session state:" then
+      state := { state with profile := config.defaultProfile }
+    let pending ← readPending? files
     let selection ← currentSelection config state
     match arguments with
     | [] => pure (statusLine selection state pending)
@@ -136,18 +146,6 @@ def control (arguments : List String) : IO String := do
         state := { state with enabled := true }
         writeJson files.state state
         pure "egg on (memory enabled)"
-    | ["off"] =>
-        removeIfExists files.pending
-        state := {
-          state with
-          enabled := false
-          nextProfile := none
-          nextProjection := none
-          lastHandoff := ""
-          lastReason := "memory disabled"
-        }
-        writeJson files.state state
-        pure "egg off (memory disabled; no graph will be stored or sent)"
     | ["use", profile] =>
         let _ ← match Config.resolve config profile with
           | .ok selection => pure selection
@@ -176,13 +174,13 @@ def control (arguments : List String) : IO String := do
         pure s!"egg next graph roots:{roots.length}"
     | ["drop"] =>
         removeIfExists files.pending
-        pure "egg dropped staged turn"
+        pure "egg cleared the active turn; saved observations and queued commits are retained"
     | ["keep"] | ["keep", _] =>
         if !state.enabled then
           throw (IO.userError "Eggshell is off; run !egg on before keeping a turn")
         let some pending := pending |
           throw (IO.userError "no staged turn")
-        if pending.finalMessage.isNone then
+        if !pending.closed && pending.finalMessage.isNone then
           throw (IO.userError "active turn cannot be kept")
         let requested := arguments.drop 1 |>.head?
         let target ← chooseTarget config pending requested

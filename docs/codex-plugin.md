@@ -77,8 +77,11 @@ EGGSHELL_PREFIX=/absolute/install/root \
 export PATH="/absolute/install/root/bin:$PATH"
 ```
 
-Installation stops the existing Eggshell daemon before replacing its files.
+Installation stops the existing Eggshell managers before replacing its files.
 Start a new Codex chat after updating so the new plugin is loaded.
+
+All processes writing a shared `.egg` file must use the same current runtime:
+the updated runtime uses kernel file locks rather than directory lock markers.
 
 ## Everyday controls
 
@@ -89,12 +92,12 @@ model. Run session controls inside the chat whose memory you want to manage.
 !egg                  show profile, readable files, save target, staged turn
 !egg keep             save the staged turn immediately
 !egg keep papers      save it to the configured file named papers
-!egg drop             discard the staged turn
+!egg drop             clear the active turn; retain saved work and queued commits
 !egg diff             preview what would be saved
 !egg use work         change this chat's default profile
 !egg next private     use read-only memory for the next turn
 !egg next off         disable memory for the next turn
-!egg off              disable recording and handoffs; discard the staged turn
+!egg off              disable recording and handoffs; clear the active turn; retain saved work and queued commits
 !egg on               enable memory again
 !egg inspect          show resolved file paths and saved state identifiers
 ```

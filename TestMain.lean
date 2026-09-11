@@ -9,6 +9,14 @@ open Eggshell Eggshell.Plugin
 def check (condition : Bool) (message : String) : IO Unit :=
   if condition then pure () else throw (IO.userError message)
 
+/-- Wait for the independent writer only in deterministic state fixtures. -/
+def runHookFixture (input : Lean.Json) : IO String := do
+  let output ← dispatchHook input
+  if let some session := optionalString input "session_id" then
+    acknowledge session "direct"
+    flushDeferred session ((← IO.monoMsNow) + 3000)
+  pure output
+
 def accessMode (path : System.FilePath) : IO String := do
   let bsd ← IO.Process.output { cmd := "stat", args := #["-f", "%Lp", path.toString] }
   if bsd.exitCode == 0 then pure bsd.stdout.trimAscii.copy
@@ -445,8 +453,8 @@ def testLocalUnion : IO Unit := do
         response := ""
       }) [] true none staged false |
     throw (IO.userError "compaction did not restore a staged Outcome graph")
-  check (restoredStage.text.contains "current staged turn" &&
-      restoredStage.text.contains "already visible earlier")
+  check (restoredStage.text.contains (canonicalJson stagedTool.response) &&
+      !restoredStage.text.contains "already visible earlier")
     "compaction restoration lost the staged Outcome graph"
   let afterStageProbe ← Persistence.load testEgg
   check (afterStageProbe.revision = beforeStageProbe.revision)
@@ -539,10 +547,10 @@ def testNaturalLanguageSessionTransport : IO Unit := do
   withSession prior.sessionId fun files => do
     writeJson files.state ({ profile := "natural-language" } : ThreadState)
     writeJson files.pending prior
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "Stop"), ("session_id", prior.sessionId),
     ("turn_id", prior.turnId), ("last_assistant_message", priorResult)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionEnd"), ("session_id", prior.sessionId)])
   let persisted ← Persistence.load naturalLanguageEgg
   let indexed := SemanticMatcher.outcomeWorkItems persisted.values
@@ -1047,7 +1055,7 @@ def testInstallerOwnership : IO Unit := do
       (Install.pluginLauncher installRoot).contains "EGGSHELL_PREFIX=" &&
       !(Install.pluginLauncher installRoot).contains "HOME" &&
       Install.commandLauncher.contains " egg \"$@\"" &&
-      (Install.pluginLauncher installRoot).contains "codex-hook|codex-daemon")
+      (Install.pluginLauncher installRoot).contains "codex-hook|codex-daemon|codex-worker|codex-rpc")
     "installed launchers did not carry the relocatable prefix"
   Install.writeExecutable layout.executable r#"#!/bin/sh
 printf '%s|%s\n' "$EGGSHELL_PREFIX" "$*"
@@ -1148,7 +1156,7 @@ def testHooks : IO Unit := do
   }
   check (off.exitCode == 0 && off.stdout.contains "egg off")
     "!egg off did not disable the persistent memory switch"
-  let offPrompt ← dispatchHook (Lean.Json.mkObj [
+  let offPrompt ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", toggleSession),
     ("turn_id", "toggle-turn"), ("cwd", cwd),
     ("prompt", "This work must not be staged while memory is off")])
@@ -1160,7 +1168,7 @@ def testHooks : IO Unit := do
   let offState ← (readJson? toggleFiles.state : IO (Option ThreadState))
   check (offState.map (·.enabled) == some false)
     "!egg off did not persist the disabled state"
-  let offTool ← dispatchHook (← hookJson
+  let offTool ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"toggle-session\",\"turn_id\":\"toggle-turn\",\"tool_name\":\"shell\",\"tool_use_id\":\"toggle-tool\",\"tool_input\":{\"command\":\"printf toggle\"}}")
   check (offTool == emptyHook && !(← toggleFiles.pending.pathExists))
     "a disabled Eggshell session recorded native tool work"
@@ -1180,7 +1188,7 @@ def testHooks : IO Unit := do
   }
   check (on.exitCode == 0 && on.stdout.contains "egg on")
     "!egg on did not re-enable the persistent memory switch"
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", toggleSession),
     ("turn_id", "toggle-turn-on"), ("cwd", cwd),
     ("prompt", "This work may be staged after memory is enabled")])
@@ -1188,13 +1196,13 @@ def testHooks : IO Unit := do
     "!egg on did not resume pending-turn staging"
   removeIfExists toggleFiles.pending
 
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-one"), ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-one"),
     ("turn_id", "turn-one"), ("cwd", cwd), ("prompt", "Trace pvclock into wallclock")])
   let parentFiles ← sessionFiles "session-one"
-  let some parentPending ← (readJson? parentFiles.pending : IO (Option PendingTurn)) |
+  let some parentPending ← readPending? parentFiles |
     throw (IO.userError "hook did not stage the parent-project turn")
   check (parentPending.write == some hookEgg.toString)
     "the parent session did not snapshot its project-local .egg"
@@ -1212,15 +1220,15 @@ def testHooks : IO Unit := do
   let nestedRoot := hookRoot / "nested-project"
   prepareTestProject nestedRoot
   let nestedCwd := nestedRoot.toString
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-nested"),
     ("cwd", nestedCwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-nested"),
     ("turn_id", "turn-nested"), ("cwd", nestedCwd),
     ("prompt", "Inspect the nested project")])
   let nestedFiles ← sessionFiles "session-nested"
-  let some nestedPending ← (readJson? nestedFiles.pending : IO (Option PendingTurn)) |
+  let some nestedPending ← readPending? nestedFiles |
     throw (IO.userError "hook did not stage the nested-project turn")
   let nestedEgg := nestedRoot / "work.egg"
   check (nestedPending.write == some nestedEgg.toString &&
@@ -1229,9 +1237,9 @@ def testHooks : IO Unit := do
   removeIfExists nestedFiles.pending
   check (!(← hookEgg.pathExists))
     "a read path was created before the first staged turn was promoted"
-  let _ ← dispatchHook (← hookJson "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-one\",\"turn_id\":\"turn-one\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-one\",\"tool_input\":{\"command\":\"rg update_vsyscall kernel/time\"},\"tool_response\":{\"output\":\"kernel/time/vsyscall.c update_vsyscall\"}}")
-  let _ ← dispatchHook (← hookJson "{\"hook_event_name\":\"Stop\",\"session_id\":\"session-one\",\"turn_id\":\"turn-one\",\"last_assistant_message\":\"pvclock joins generic timekeeping\"}")
-  let _ ← dispatchHook (← hookJson "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"session-one\"}")
+  let _ ← runHookFixture (← hookJson "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-one\",\"turn_id\":\"turn-one\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-one\",\"tool_input\":{\"command\":\"rg update_vsyscall kernel/time\"},\"tool_response\":{\"output\":\"kernel/time/vsyscall.c update_vsyscall\"}}")
+  let _ ← runHookFixture (← hookJson "{\"hook_event_name\":\"Stop\",\"session_id\":\"session-one\",\"turn_id\":\"turn-one\",\"last_assistant_message\":\"pvclock joins generic timekeeping\"}")
+  let _ ← runHookFixture (← hookJson "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"session-one\"}")
   check (← hookEgg.pathExists)
     "the first kept turn did not create its write authority"
   let some stateOne ← (readJson? parentFiles.state : IO (Option ThreadState)) |
@@ -1239,40 +1247,51 @@ def testHooks : IO Unit := do
   check (!stateOne.deliveredGraphs.isEmpty &&
       stateOne.deliveredGraphs.all (·.startsWith "h:"))
     "promotion did not mark its complete Outcome owners as native history"
-  let ownFollowup ← dispatchHook (Lean.Json.mkObj [
+  let ownFollowup ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-one"),
     ("turn_id", "turn-one-followup"), ("cwd", cwd),
     ("prompt", "Trace pvclock into wallclock")])
   check (!ownFollowup.contains "additionalContext")
     "the same session echoed its newly promoted graph before compaction"
   removeIfExists parentFiles.pending
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-two"), ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-two"),
     ("turn_id", "turn-two"), ("cwd", cwd), ("prompt", "Trace TSC into wallclock")])
   let preTool ← hookJson "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-two\",\"turn_id\":\"turn-two\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-two\",\"tool_input\":{\"command\":\"rg update_vsyscall ./kernel/time\"}}"
-  let first ← dispatchHook preTool
+  let first ← runHookFixture preTool
   check (first.contains "permissionDecision")
     "independent session did not receive completed prior operation"
   check (first.contains "Replan the call" && first.contains "completed prior native Work")
     "one-shot operation replanning was not explained to the agent"
-  let second ← dispatchHook preTool
+  let second ← runHookFixture preTool
   check (!second.contains "permissionDecision")
     "an unchanged Outcome subtree triggered twice before compaction"
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson "{\"hook_event_name\":\"PostCompact\",\"session_id\":\"session-two\"}")
+  let restored ← runHookFixture preTool
+  check (restored.contains "additionalContext" && !restored.contains "permissionDecision")
+    "compaction did not restore unchanged evidence without another checkpoint"
+
+  -- A new native occurrence supplies a distinct Outcome owner. The earlier
+  -- checkpoint for this operation must not suppress reuse of that new evidence.
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-two\",\"turn_id\":\"turn-two\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-two\",\"tool_input\":{\"command\":\"rg update_vsyscall ./kernel/time\"},\"tool_response\":{\"output\":\"kernel/time/vsyscall.c update_vsyscall\"}}")
-  let _ ← dispatchHook (← hookJson "{\"hook_event_name\":\"PostCompact\",\"session_id\":\"session-two\"}")
-  let restored ← dispatchHook preTool
-  check (restored.contains "permissionDecision")
-    "compaction did not make lost graph eligible for restoration"
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (← hookJson "{\"hook_event_name\":\"PostCompact\",\"session_id\":\"session-two\"}")
+  let newEvidence ← runHookFixture preTool
+  check (newEvidence.contains "kernel/time/vsyscall.c update_vsyscall" &&
+      newEvidence.contains "permissionDecision")
+    "an earlier operation checkpoint suppressed new observed evidence after compaction"
+  let unchangedEvidence ← runHookFixture preTool
+  check (!unchangedEvidence.contains "permissionDecision")
+    "an unchanged new Outcome triggered another checkpoint"
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-three"), ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-three"),
     ("turn_id", "turn-three"), ("cwd", cwd), ("prompt", "Inspect an unrelated clock")])
   let postTool ← hookJson "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-three\",\"turn_id\":\"turn-three\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-three\",\"tool_input\":{\"command\":\"rg update_vsyscall ./kernel/time\"},\"tool_response\":{\"output\":\"kernel/time/vsyscall.c update_vsyscall\"}}"
-  let progressed ← dispatchHook postTool
+  let progressed ← runHookFixture postTool
   check (progressed.contains "additionalContext" &&
       !progressed.contains "permissionDecision")
     "PostToolUse did not deliver newly connected graph data as context"
@@ -1281,63 +1300,63 @@ def testHooks : IO Unit := do
     throw (IO.userError "PostToolUse did not persist delivery progress")
   check (stateThree.lastReason.contains "blocks-current=false")
     "PostToolUse was recorded as a PreTool operation erasure"
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-four"), ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-four"),
     ("turn_id", "turn-four"), ("cwd", cwd), ("prompt", "Inspect an unrelated clock")])
-  let completedAfterAdvisoryBudget ← dispatchHook (← hookJson
+  let completedAfterAdvisoryBudget ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-four\",\"turn_id\":\"turn-four\",\"tool_name\":\"shell\",\"tool_use_id\":\"tool-four\",\"tool_input\":{\"command\":\"rg update_vsyscall ./kernel/time\"}}")
   check (completedAfterAdvisoryBudget.contains "permissionDecision")
     "an earlier delta incorrectly consumed the later graph transport budget"
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-five"), ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-five"),
     ("turn_id", "turn-five"), ("cwd", cwd), ("prompt", "Inspect a unique parallel probe")])
-  let firstParallel ← dispatchHook (← hookJson
+  let firstParallel ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-five\",\"turn_id\":\"turn-five\",\"tool_name\":\"shell\",\"tool_use_id\":\"parallel-one\",\"tool_input\":{\"command\":\"printf eggshell_unique_parallel_probe_7f9a\"}}")
   check (!firstParallel.contains "permissionDecision")
     "a new native Work was rejected before execution"
-  let duplicateParallel ← dispatchHook (← hookJson
+  let duplicateParallel ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-five\",\"turn_id\":\"turn-five\",\"tool_name\":\"shell\",\"tool_use_id\":\"parallel-two\",\"tool_input\":{\"command\":\"printf eggshell_unique_parallel_probe_7f9a\"}}")
   check (!duplicateParallel.contains "permissionDecision")
     "an unclosed native occurrence incorrectly blocked a later proposal"
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-five\",\"turn_id\":\"turn-five\",\"tool_name\":\"shell\",\"tool_use_id\":\"parallel-one\",\"tool_input\":{\"command\":\"printf eggshell_unique_parallel_probe_7f9a\"},\"tool_response\":{\"output\":\"eggshell_unique_parallel_probe_7f9a\"}}")
   let sessionFive ← sessionFiles "session-five"
-  let some pendingFive ← (readJson? sessionFive.pending : IO (Option PendingTurn)) |
+  let some pendingFive ← readPending? sessionFive |
     throw (IO.userError "parallel test lost its staged turn")
   check (pendingFive.inFlight.length = 1 && pendingFive.tools.length = 1)
     "PostToolUse did not close exactly its observed native occurrence"
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"Stop\",\"session_id\":\"session-five\",\"turn_id\":\"turn-five\",\"last_assistant_message\":\"one occurrence completed and one lacked a terminal hook\"}")
-  let some sealedFive ← (readJson? sessionFive.pending : IO (Option PendingTurn)) |
+  let some sealedFive ← readPending? sessionFive |
     throw (IO.userError "Stop lost the staged turn with a missing terminal hook")
   check (sealedFive.inFlight.isEmpty && sealedFive.tools.length = 1)
     "Stop did not discard the unobserved occurrence"
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", "session-six"), ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", "session-six"),
     ("turn_id", "turn-six"), ("cwd", cwd),
     ("prompt", "Inspect two hook-delivery probes")])
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-six\",\"turn_id\":\"turn-six\",\"tool_name\":\"shell\",\"tool_use_id\":\"observed-six\",\"tool_input\":{\"command\":\"printf observed_hook_result_3a72\"}}")
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-six\",\"turn_id\":\"turn-six\",\"tool_name\":\"shell\",\"tool_use_id\":\"missing-six\",\"tool_input\":{\"command\":\"printf unobserved_hook_result_91ce\"}}")
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-six\",\"turn_id\":\"turn-six\",\"tool_name\":\"shell\",\"tool_use_id\":\"observed-six\",\"tool_input\":{\"command\":\"printf observed_hook_result_3a72\"},\"tool_response\":{\"output\":\"observed_hook_result_3a72\"}}")
   /- Codex Stop may omit `turn_id`; the session's sole staged turn is unambiguous. -/
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"Stop\",\"session_id\":\"session-six\",\"last_assistant_message\":\"completed with one observed native result\"}")
   let sessionSix ← sessionFiles "session-six"
-  let some sealedSix ← (readJson? sessionSix.pending : IO (Option PendingTurn)) |
+  let some sealedSix ← readPending? sessionSix |
     throw (IO.userError "Stop discarded the fail-soft staged turn")
   check (sealedSix.inFlight.isEmpty && sealedSix.tools.length = 1 &&
       sealedSix.finalMessage.isSome)
     "Stop did not discard only the unresolved reservation"
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"session-six\"}")
   check (!( ← sessionSix.pending.pathExists))
     "fail-soft turn did not promote its observed work"
@@ -1371,40 +1390,40 @@ def testHooks : IO Unit := do
     input := r#"{"command":"printf interrupted_observed_62d1"}"#
     response := r#"{"output":"interrupted_observed_62d1"}"#
   }
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", interruptedSession),
     ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", interruptedSession),
     ("turn_id", interruptedTurn), ("cwd", cwd), ("prompt", interruptedPrompt)])
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"session-interrupted\",\"turn_id\":\"turn-interrupted\",\"tool_name\":\"shell\",\"tool_use_id\":\"interrupted-observed\",\"tool_input\":{\"command\":\"printf interrupted_observed_62d1\"},\"tool_response\":{\"output\":\"interrupted_observed_62d1\"}}")
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-interrupted\",\"turn_id\":\"turn-interrupted\",\"tool_name\":\"shell\",\"tool_use_id\":\"interrupted-unobserved\",\"tool_input\":{\"command\":\"printf interrupted_unobserved_b87e\"}}")
   let interruptedFiles ← sessionFiles interruptedSession
-  let reconnect ← dispatchHook (Lean.Json.mkObj [
+  let reconnect ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", interruptedSession),
     ("cwd", cwd)])
   check (!reconnect.contains "drop")
     "connection recovery required manual deletion of staged work"
-  let replay ← dispatchHook (Lean.Json.mkObj [
+  let replay ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", interruptedSession),
     ("turn_id", interruptedTurn), ("cwd", cwd), ("prompt", interruptedPrompt)])
   check (replay == emptyHook)
     "a repeated hook for the active turn was not idempotent"
   let some replayedPending ←
-      (readJson? interruptedFiles.pending : IO (Option PendingTurn)) |
+      readPending? interruptedFiles |
     throw (IO.userError "same-turn reconnect lost its staged observations")
   check (replayedPending.tools.length = 1 && replayedPending.inFlight.length = 1)
     "same-turn reconnect changed staged native occurrences"
-  let continued ← dispatchHook (Lean.Json.mkObj [
+  let continued ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", interruptedSession),
     ("turn_id", "turn-after-interruption"), ("cwd", cwd),
     ("prompt", "Continue from the interrupted probe")])
   check (!continued.contains "\"decision\":\"block\"")
     "a recovered partial turn blocked subsequent work"
   let some continuedPending ←
-      (readJson? interruptedFiles.pending : IO (Option PendingTurn)) |
+      readPending? interruptedFiles |
     throw (IO.userError "recovery did not start the next staged turn")
   check (continuedPending.turnId = "turn-after-interruption")
     "recovery did not replace the interrupted stage with the next turn"
@@ -1441,7 +1460,7 @@ def testHooks : IO Unit := do
   writeJson closedFiles.pending closedPending
   let closeEvent := Lean.Json.mkObj [
     ("hook_event_name", "SessionEnd"), ("session_id", closedSession)]
-  let _ ← dispatchHook closeEvent
+  let _ ← runHookFixture closeEvent
   check (!(← closedFiles.pending.pathExists)) "closed turn remained staged after promotion"
   let closedGraph ← Persistence.load hookEgg
   let closedOutcomes := closedGraph.values.filterMap OutcomeEdge.fromValue?
@@ -1457,7 +1476,7 @@ def testHooks : IO Unit := do
       edge.parent == .text closedPending.prompt && edge.children.contains recoveredWork &&
         edge.children.contains (HandoffRemainder.value closedPending.prompt))
     "SessionEnd lost the open remainder"
-  let _ ← dispatchHook closeEvent
+  let _ ← runHookFixture closeEvent
   check ((← Persistence.load hookEgg).revision == closedGraph.revision)
     "repeated SessionEnd promoted the same turn twice"
   let freshSelection : Config.Selection := {
@@ -1473,18 +1492,18 @@ def testHooks : IO Unit := do
   Persistence.privateDirectory badTarget
   writeJson closedFiles.pending { closedPending with write := some badTarget.toString }
   let failed ← try
-    let _ ← dispatchHook closeEvent
+    let _ ← runHookFixture closeEvent
     pure false
     catch _ => pure true
-  check (failed && (← closedFiles.pending.pathExists))
-    "failed recovery erased the staged work"
+  check (!failed && (← (closedFiles.directory / "deferred").pathExists))
+    "failed persistence blocked the hook or erased the retry queue"
   let afterFailure := Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", closedSession),
     ("turn_id", "after-save-failure"), ("cwd", cwd), ("prompt", "Continue ordinary work")]
-  let reply ← dispatchHook afterFailure
+  let reply ← runHookFixture afterFailure
   check (!reply.contains "drop" && !reply.contains "\"decision\":\"block\"")
     "saving failed and Eggshell required the user to drop work"
-  let some newPending ← (readJson? closedFiles.pending : IO (Option PendingTurn)) |
+  let some newPending ← readPending? closedFiles |
     throw (IO.userError "save failure prevented the next turn from being observed")
   check (newPending.turnId == "after-save-failure") "new turn reused the failed pending slot"
   let deferred := closedFiles.directory / "deferred" /
@@ -1494,7 +1513,7 @@ def testHooks : IO Unit := do
   check (saved.tools.length == 1 && saved.inFlight.length == 1)
     "deferral changed the interrupted observations"
   IO.FS.removeDir badTarget
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", closedSession),
     ("turn_id", "after-repair"), ("cwd", cwd), ("prompt", "Continue after repair")])
   check (!(← deferred.pathExists)) "deferred save was not retried automatically"
@@ -1505,16 +1524,16 @@ def testHooks : IO Unit := do
   /- A turn interrupted before any terminal tool result has no work to retain. -/
   let emptyRecoverySession := "session-empty-interruption"
   let beforeEmptyRecovery := (← Persistence.load hookEgg).revision
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "SessionStart"), ("session_id", emptyRecoverySession),
     ("cwd", cwd)])
-  let _ ← dispatchHook (Lean.Json.mkObj [
+  let _ ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", emptyRecoverySession),
     ("turn_id", "empty-interrupted"), ("cwd", cwd),
     ("prompt", "Start but do not finish a probe")])
-  let _ ← dispatchHook (← hookJson
+  let _ ← runHookFixture (← hookJson
     "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"session-empty-interruption\",\"turn_id\":\"empty-interrupted\",\"tool_name\":\"shell\",\"tool_use_id\":\"empty-unobserved\",\"tool_input\":{\"command\":\"printf empty_unobserved_41ca\"}}")
-  let resumedEmpty ← dispatchHook (Lean.Json.mkObj [
+  let resumedEmpty ← runHookFixture (Lean.Json.mkObj [
     ("hook_event_name", "UserPromptSubmit"), ("session_id", emptyRecoverySession),
     ("turn_id", "after-empty-interruption"), ("cwd", cwd),
     ("prompt", "Continue without prior observations")])
@@ -1530,10 +1549,10 @@ def waitHook (task : Task (Except IO.Error String)) : IO String := do
   | .error error => throw error
 
 def testDaemonConcurrency : IO Unit := do
-  let endpointFile ← Plugin.Daemon.endpointPath
+  let endpointFile ← Plugin.Daemon.endpointPath "daemon-parallel"
   if ← endpointFile.pathExists then IO.FS.removeFile endpointFile
-  let daemon ← IO.asTask Plugin.Daemon.run .dedicated
-  let endpoint ← Plugin.Daemon.awaitEndpoint Plugin.Daemon.startupAttempts
+  let daemon ← IO.asTask (Plugin.Daemon.run "daemon-parallel") .dedicated
+  let endpoint ← Plugin.Daemon.awaitEndpoint "daemon-parallel" Plugin.Daemon.startupAttempts
   let cwd := (← hookTestRoot).toString
   let send (input : Lean.Json) := Plugin.Daemon.exchange endpoint "hook" input
   let _ ← send (Lean.Json.mkObj [
@@ -1552,7 +1571,7 @@ def testDaemonConcurrency : IO Unit := do
   let _ ← waitHook firstPre
   let _ ← waitHook secondPre
   let files ← sessionFiles "daemon-parallel"
-  let some reserved ← (readJson? files.pending : IO (Option PendingTurn)) |
+  let some reserved ← readPending? files |
     throw (IO.userError "daemon lost the concurrent staged turn")
   check (reserved.inFlight.length = 2)
     "daemon did not linearize two concurrent native Work reservations"
@@ -1564,7 +1583,7 @@ def testDaemonConcurrency : IO Unit := do
   let secondPost ← IO.asTask (send postTwo) .dedicated
   let _ ← waitHook firstPost
   let _ ← waitHook secondPost
-  let some completed ← (readJson? files.pending : IO (Option PendingTurn)) |
+  let some completed ← readPending? files |
     throw (IO.userError "daemon lost concurrent native results")
   check (completed.inFlight.isEmpty && completed.tools.length = 2)
     "daemon did not close both concurrent native Work occurrences"
@@ -1572,6 +1591,7 @@ def testDaemonConcurrency : IO Unit := do
     "{\"hook_event_name\":\"Stop\",\"session_id\":\"daemon-parallel\",\"turn_id\":\"daemon-turn\",\"last_assistant_message\":\"both probes completed\"}")
   let _ ← send (← hookJson
     "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"daemon-parallel\"}")
+  flushDeferred "daemon-parallel" ((← IO.monoMsNow) + 3000)
   let _ ← Plugin.Daemon.exchange endpoint "shutdown"
   match ← IO.wait daemon with
   | .ok 0 => pure ()
@@ -1580,6 +1600,81 @@ def testDaemonConcurrency : IO Unit := do
   check (!(← files.pending.pathExists))
     "concurrent daemon turn was not promoted atomically"
   IO.println "PASS concurrent daemon clients preserve one staged turn"
+
+def testLifecycle : IO Unit := do
+  let session := "lifecycle-fencing"
+  let files ← sessionFiles session
+  let pending := { seed with sessionId := session, turnId := "current", finalMessage := none }
+  let initial : ThreadState := { profile := "work", epoch := 8, deliveredGraphs := ["g:old"] }
+  let now ← IO.monoMsNow
+  let offer : DeliveryOffer := {
+    id := "receipt", stamp := { turn := "current", epoch := 8, deadline := now + 10000 },
+    graphs := ["g:new"], text := "evidence", reason := "observed" }
+  withSession session fun files => do
+    writeJson files.pending pending
+    writeJson files.state { initial with offers := [offer] }
+  acknowledge session "missing"
+  let some noReceipt ← readState? files | throw (IO.userError "missing state")
+  check (noReceipt.deliveredGraphs == initial.deliveredGraphs)
+    "an unacknowledged result was treated as delivered"
+  for stamp in [
+      { offer.stamp with turn := "old" },
+      { offer.stamp with epoch := 7 },
+      { offer.stamp with deadline := now }] do
+    withSession session fun files =>
+      writeJson files.state { initial with offers := [{ offer with stamp }] }
+    acknowledge session "receipt"
+    let some rejected ← readState? files | throw (IO.userError "missing state")
+    check (rejected.deliveredGraphs == initial.deliveredGraphs && rejected.lastHandoff == "")
+      "a stale or expired receipt published evidence"
+  withSession session fun files => writeJson files.state { initial with offers := [offer] }
+  acknowledge session "receipt"
+  let some accepted ← readState? files | throw (IO.userError "missing state")
+  check (accepted.deliveredGraphs.contains "g:new" && accepted.lastHandoff == "evidence")
+    "a current acknowledged result was not published"
+  let compacted := compactState { accepted with deliveredGraphs := ["g:new", "h:old", "d:once"] }
+  check (compacted.deliveredGraphs == ["d:once"] && compacted.offers.isEmpty)
+    "compaction re-armed a checkpoint or retained an old delivery offer"
+
+  let target := testRoot / "incremental.egg"
+  let partialTurn := { seed with finalMessage := none, tools := seed.tools.take 1 }
+  let _ ← promoteObservations partialTurn target
+  let first ← Persistence.load target
+  let expected ← IO.ofExcept (stagedGraphValues partialTurn)
+  check (first.values == expected.eraseDups)
+    "an incremental save fabricated a parent completion or unfinished invocation"
+  let _ ← promoteObservations partialTurn target
+  let replayed ← Persistence.load target
+  check (replayed.values == first.values && replayed.revision == first.revision)
+    "replaying a committed observation changed the authority"
+  let _ ← promote seed target
+  let final ← Persistence.load target
+  check (expected.all final.values.contains)
+    "final promotion lost an already saved intermediate observation"
+
+  -- A journal can supply a new parent edge for an already committed Outcome.
+  -- Deduplicating its bytes must not discard the child's new graph membership.
+  let overlapTarget := testRoot / "incremental-overlap.egg"
+  let _ ← Persistence.update overlapTarget fun graph => do
+    let some tx := (Transaction.begin graph).stageValues? (observedRoots partialTurn) |
+      throw "invalid observation fixture"
+    pure (tx, ())
+  let selection : Config.Selection := {
+    label := "overlap", semanticMatcher := none, write := none,
+    read := [{ name := "overlap", path := overlapTarget }], handoffChars := 120000 }
+  let some tool := partialTurn.tools.head? | throw (IO.userError "empty observation fixture")
+  let overlapping ← automaticHandoff selection (canonicalToolWork tool) [] true none expected
+  check (overlapping.any (·.blocksCurrent))
+    "deduplicating a saved Outcome lost its staged parent edge"
+
+  withSession session fun files => IO.FS.writeFile files.state "tr"
+  let _ ← dispatchHook (Lean.Json.mkObj [
+    ("hook_event_name", "PostCompact"), ("session_id", session)])
+  let some repaired ← readState? files | throw (IO.userError "corrupt state was not replaced")
+  check (!repaired.enabled) "corrupt state repeatedly poisoned the hook lifecycle"
+  let quarantined := (← files.directory.readDir).any (·.fileName.startsWith "state.json.corrupt-")
+  check quarantined "corrupt state was destroyed instead of retained"
+  IO.println "PASS delivery fencing, incremental observations, idempotent replay, corrupt state recovery"
 
 def semanticProviderFixture : IO UInt32 := do
   let input ← IO.getStdin
@@ -1627,12 +1722,18 @@ def runTests : IO UInt32 := do
     testInstallerOwnership
     testHooks
     testDaemonConcurrency
+    testLifecycle
+    Worker.shutdown
     pure 0
   catch error =>
+    Worker.shutdown
     IO.eprintln s!"FAIL {error}"
     pure 1
 
 def main (arguments : List String) : IO UInt32 :=
   match arguments with
+  | ["codex-worker", role] => Worker.run role
+  | ["codex-daemon", session] => Plugin.Daemon.run session
+  | ["codex-rpc", kind] => Plugin.Daemon.rpcClient kind
   | ["semantic-provider-fixture", "retrieval"] => semanticProviderFixture
   | _ => runTests

@@ -1,6 +1,6 @@
 module
 
-public import Eggshell.Handoff
+public import Eggshell.Worker
 public import Eggshell.MiniLM
 
 @[expose] public section
@@ -32,195 +32,208 @@ def configFromHook (input : Json) (cwd : System.FilePath) : IO (Option Config.Co
     if config.semanticMatcherWasSet then pure config
     else
       pure { config with
-        semanticMatcher := ← MiniLM.command (← Paths.installRoot) (← dataRoot) }
-
-def pendingSelection (pending : PendingTurn) : Config.Selection :=
-  let eggs := pending.read.map fun raw => {
-    name := raw
-    path := System.FilePath.mk raw
-  }
-  {
-    label := pending.profile
-    semanticMatcher := pending.semanticMatcher
-    read := eggs
-    write := pending.write.map fun raw => {
-      name := raw
-      path := System.FilePath.mk raw
-    }
-    handoffChars := pending.handoffChars
-    localUnion := pending.localUnion
-  }
+        semanticMatcher := ← MiniLM.command (← Paths.installRoot)
+          (← sessionFiles ((optionalString input "session_id").getD "cli")).directory }
 
 def addDeliveredGraphs (state : ThreadState) (keys : List String) : ThreadState :=
   { state with deliveredGraphs := (state.deliveredGraphs ++ keys).eraseDups }
 
-def recordHandoff (state : ThreadState) (handoff : Handoff) : ThreadState :=
-  { (addDeliveredGraphs state handoff.deliveredGraphs) with
-    lastHandoff := handoff.text
-    lastReason := handoff.reason }
+/-- Compaction forgets context delivery but retains evidence-specific checkpoints. -/
+def compactState (state : ThreadState) : ThreadState := {
+  state with
+      epoch := state.epoch + 1
+      offers := []
+      deliveredGraphs := state.deliveredGraphs.filter (·.startsWith "d:")
+      afterCompaction := true
+      lastHandoff := ""
+      lastReason := "compacted; graph may be resent without repeating a checkpoint" }
 
-/-- Every semi-naive delta has its own transport budget. -/
-def recordHandoffWithin (limit : Nat) (state : ThreadState)
-    (handoff : Handoff) : Option ThreadState :=
-  if handoff.text.length ≤ limit then some (recordHandoff state handoff) else none
+theorem compaction_preserves_checkpoint (state : ThreadState) (key : String)
+    (present : key ∈ state.deliveredGraphs) (checkpoint : key.startsWith "d:" = true) :
+    key ∈ (compactState state).deliveredGraphs := by
+  simp [compactState, present, checkpoint]
 
-theorem recordHandoffWithin_is_per_delta (limit : Nat) (state : ThreadState)
-    (handoff : Handoff) :
-    (recordHandoffWithin limit state handoff).isSome =
-      decide (handoff.text.length ≤ limit) := by
-  unfold recordHandoffWithin
-  split <;> simp_all
+def hookDeadline (input : Json) (budget : Nat := 20000) : IO Nat := do
+  let now ← IO.monoMsNow
+  pure <| min (now + budget)
+    ((input.getObjValAs? Nat "_eggshell_deadline").toOption.getD (now + budget))
 
-def resolveDefault (files : SessionFiles) (state : ThreadState)
-    (pending : PendingTurn) : IO ThreadState := do
-  let nextState ← match pending.finalMessage with
-  | none =>
-      /-
-      A disconnected turn has no parent result, but every terminal PostToolUse
-      already recorded a real Work→Outcome edge. Preserve those observations
-      with their open remainder; unresolved in-flight calls never enter the
-      compiler. The native result is already visible in this chat, so mark its
-      owners visible until compaction clears the context epoch.
-      -/
-      if !pending.tools.isEmpty then
-        match pending.write with
-        | some target =>
-            let promotion ← promote pending (System.FilePath.mk target)
-            pure (addDeliveredGraphs state
-              (promotion.outcomeRelations.map nativeHistoryKey))
-        | none => pure state
-      else
-        pure state
-  | some _ =>
-      let nextState ← match pending.write with
-        | none => pure state
-        | some target =>
-            let promotion ← promote pending (System.FilePath.mk target)
-            pure (addDeliveredGraphs state
-              (promotion.outcomeRelations.map nativeHistoryKey))
-      pure nextState
-  removeIfExists files.pending
-  pure nextState
-
-/-- A failed authority write must not occupy the next turn's observation slot. -/
+/-- Archive only metadata while holding the session lock. Receipts stay in place. -/
 def deferPending (files : SessionFiles) (pending : PendingTurn) : IO Unit := do
   let key := SemanticMatcher.contentKey (.text pending.turnId)
   writeJson (files.directory / "deferred" / (key ++ ".json")) pending
   removeIfExists files.pending
 
-def retryDeferred (files : SessionFiles) : IO Unit := do
-  let directory := files.directory / "deferred"
-  if !(← directory.pathExists) then return
-  for entry in ← directory.readDir do
-    if entry.fileName.endsWith ".json" then
+/-- The journal is authoritative for observed events even if the native hook
+    exits between recording a receipt and registering its save. This cursor is
+    only an optimization: restarting a manager safely replays all receipts. -/
+def reconcileToolReceipts (session : String) (files : SessionFiles)
+    (cursor : IO.Ref (String × List String)) : IO Unit := do
+  let pending ← withSession session fun files => do
+    let some state ← readState? files | return none
+    if !state.enabled then return none
+    readPendingBase? files
+  let some pending := pending | return
+  let (turn, seen) ← cursor.get
+  let mut seen := if turn == pending.turnId then seen else []
+  let directory := toolDirectory files pending.turnId
+  if ← directory.pathExists then
+    for entry in ← directory.readDir do
+      if !entry.fileName.endsWith ".json" || seen.contains entry.fileName then continue
       try
-        if let some pending ← (readJson? entry.path : IO (Option PendingTurn)) then
-          if let some target := pending.write then
-            if pending.finalMessage.isSome || !pending.tools.isEmpty then
-              let _ ← promote pending (System.FilePath.mk target)
-          removeIfExists entry.path
-      catch error =>
-        IO.eprintln s!"Eggshell retained deferred work for another save attempt: {error}"
+        if let some tool ← (readJson? entry.path : IO (Option ToolEvent)) then
+          queueCheckpoint files {
+            pending with tools := [tool], inFlight := [], finalMessage := none, closed := false }
+          seen := entry.fileName :: seen
+          cursor.set (pending.turnId, seen)
+      catch error => IO.eprintln s!"Eggshell retained an unqueued tool receipt: {error}"
+
+/-- Saving is isolated from search and never holds the session state lock. -/
+def flushDeferred (session : String) (deadline : Nat)
+    (cursor : Option (IO.Ref (String × List String)) := none) : IO Unit := do
+  let files ← sessionFiles session
+  try Persistence.withLockWithin (files.directory / "save") 0 do
+    if let some cursor := cursor then reconcileToolReceipts session files cursor
+    let mut entries := []
+    for name in ["deferred", "checkpoints"] do
+      let directory := files.directory / name
+      if ← directory.pathExists then entries := entries ++ (← directory.readDir).toList
+    for entry in entries.take 8 do
+      if (← IO.monoMsNow) ≥ deadline then return
+      if !entry.fileName.endsWith ".json" then continue
+      let state ← withSession session fun files => readState? files
+      if state.any (! ·.enabled) then return
+      let epoch := state.map (·.epoch)
+      let payload := Json.mkObj [("session", session), ("path", entry.path.toString)]
+      let some result ← Worker.exchange session "save" payload deadline | return
+      let .ok keys := (fromJson? result : Except String (List String)) |
+        IO.eprintln s!"Eggshell retained uncommitted work: {result.compress}"
+        continue
+      -- A save can finish after compaction. Its graph remains valid on disk,
+      -- but is not thereby evidence that the new native context contains it.
+      withSession session fun files => do
+        if let some state ← readState? files then
+          if state.enabled && !state.afterCompaction && epoch == some state.epoch then
+            writeJson files.state (addDeliveredGraphs state keys)
+  catch error => IO.eprintln s!"Eggshell retained queued work: {error}"
 
 def sessionStart (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   if optionalString input "source" = some "compact" then
+    Worker.cancel session "search"
     withSession session fun files => do
-      if let some state ← (readJson? files.state : IO (Option ThreadState)) then
-        writeJson files.state {
-          state with
-          deliveredGraphs := []
-          afterCompaction := true
-          lastHandoff := ""
-          lastReason := "compacted; graph may be resent"
-        }
-      pure emptyHook
-  else withSession session fun files => do
-    let existingState ← (readJson? files.state : IO (Option ThreadState))
-    if let some state := existingState then
-      if !state.enabled then
-        removeIfExists files.pending
-        return emptyHook
+      if let some state ← readState? files then
+        if state.enabled then writeJson files.state (compactState state)
+  else
     let cwd := System.FilePath.mk ((optionalString input "cwd").getD ".")
     let config ← configFromHook input cwd
-    if let some config := config then
-      if existingState.isNone then
-        writeJson files.state (defaultState config)
-    let pending ← (readJson? files.pending : IO (Option PendingTurn))
-    pure <| match pending with
-      | some pending =>
-          if pending.finalMessage.isSome then
-            systemMessage "Eggshell recovered the previous turn; it will be saved automatically."
-          else emptyHook
-      | none => emptyHook
+    withSession session fun files => do
+      if (← readState? files).isNone then
+        if let some config := config then writeJson files.state (defaultState config)
+  pure emptyHook
+
+def acceptOffer (state : ThreadState) (turn : String) (now : Nat)
+    (offer : DeliveryOffer) : ThreadState :=
+  if state.enabled && offer.stamp.accepts turn state.epoch now then
+    { (addDeliveredGraphs state offer.graphs) with
+      lastHandoff := offer.text, lastReason := offer.reason }
+  else state
+
+theorem rejected_offer_changes_nothing (state : ThreadState) (turn : String)
+    (now : Nat) (offer : DeliveryOffer)
+    (rejected : offer.stamp.accepts turn state.epoch now = false) :
+    acceptOffer state turn now offer = state := by
+  simp [acceptOffer, rejected]
+
+theorem disabled_memory_rejects_delivery (state : ThreadState) (turn : String)
+    (now : Nat) (offer : DeliveryOffer) (disabled : state.enabled = false) :
+    acceptOffer state turn now offer = state := by
+  simp [acceptOffer, disabled]
+
+def acknowledge (session id : String) : IO Unit := withSession session fun files => do
+  let some state ← readState? files | return
+  let some pending ← readPendingBase? files | return
+  let now ← IO.monoMsNow
+  let some offer := state.offers.find? (·.id == id) | return
+  let state := { state with offers := state.offers.filter (·.id != id) }
+  writeJson files.state (acceptOffer state pending.turnId now offer)
+
+/-- Search results become offers only after checking the current turn and epoch. -/
+def deliverForWork (input : Json) (pending : PendingTurn) (work : String)
+    (enforce : Bool) (evidenceText : Option String := none) (staged : Bool := false) :
+    IO (Option Handoff) := do
+  let session := pending.sessionId
+  let deadline ← hookDeadline input
+  let snapshot ← withSession session fun files => do
+    let some state ← readState? files | return none
+    let some current ← readPendingBase? files | return none
+    if !state.enabled || current.turnId != pending.turnId || (current.closed || current.finalMessage.isSome) then
+      return none
+    pure (some state)
+  let some initial := snapshot | return none
+  if pending.projection == .none || pending.read.isEmpty then return none
+  let stamp : RequestStamp := { turn := pending.turnId, epoch := initial.epoch, deadline }
+  let query : Worker.Search := {
+    pending, state := initial, work, enforce, evidence := evidenceText, staged }
+  let some result ← Worker.exchange session "search" (toJson query) deadline | return none
+  let .ok (some handoff) := (fromJson? result : Except String (Option Handoff)) | return none
+  if handoff.text.length > pending.handoffChars then return none
+  withSession session fun files => do
+    let some state ← readState? files | return none
+    let some current ← readPendingBase? files | return none
+    let now ← IO.monoMsNow
+    if !state.enabled || (current.closed || current.finalMessage.isSome) ||
+        !stamp.accepts current.turnId state.epoch now then return none
+    -- Reserve only newly grounded evidence, rechecking under the state lock
+    -- in case another hook used it during this search. Context delivery itself
+    -- still requires the client's receipt.
+    let checkpoints := handoff.deliveredGraphs.filter (·.startsWith "d:")
+    let blocks := handoff.blocksCurrent &&
+      checkpoints.any (!state.deliveredGraphs.contains ·)
+    let handoff := { handoff with
+      blocksCurrent := blocks
+      reason := handoff.reason.replace "blocks-current=true" s!"blocks-current={blocks}" }
+    let id := (optionalString input "_eggshell_receipt").getD "direct"
+    let offer : DeliveryOffer := {
+      id, stamp, graphs := handoff.deliveredGraphs, text := handoff.text, reason := handoff.reason }
+    writeJson files.state {
+      (addDeliveredGraphs state checkpoints) with
+      offers := offer :: (state.offers.filter fun (offer : DeliveryOffer) =>
+        offer.id != id && offer.stamp.accepts current.turnId state.epoch now).take 15 }
+    pure (some handoff)
 
 def userPromptSubmit (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   let turn ← IO.ofExcept (requiredString input "turn_id")
   let cwd := System.FilePath.mk (← IO.ofExcept (requiredString input "cwd"))
   let prompt ← IO.ofExcept (requiredString input "prompt")
-  withSession session fun files => do
-    let existingState ← (readJson? files.state : IO (Option ThreadState))
-    if let some state := existingState then
-      if !state.enabled then
-        removeIfExists files.pending
-        return emptyHook
-    let config? ← configFromHook input cwd
-    let some config := config? | pure emptyHook
-    let mut state := existingState.getD
-      (defaultState config)
-    retryDeferred files
-    if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
-      /-
-      A repeated hook for the same turn is idempotent. A distinct turn proves
-      that the previous one can no longer receive a final response here, so its
-      observed outcomes are recovered before extracting the new handoff.
-      -/
-      if pending.turnId == turn then return emptyHook
-      state ← try resolveDefault files state pending catch error =>
-        deferPending files pending
-        IO.eprintln s!"Eggshell retained the previous work and started a new turn: {error}"
-        pure state
-    let profileName := state.nextProfile.getD state.profile
-    let selection ← match Config.resolve config profileName with
-      | .ok selection => pure selection
-      | .error message => throw (IO.userError message)
-    let projection := state.nextProjection.getD .automatic
-    let handoff ← match projection with
-      | .automatic =>
-          automaticHandoff selection prompt state.deliveredGraphs false
-            (enableLocalUnion := selection.localUnion)
-      | .none => pure none
-      | .roots keys => manualHandoff selection prompt keys
-    let handoff := handoff.bind fun candidate =>
-      (recordHandoffWithin selection.handoffChars state candidate).map fun next =>
-        (candidate, next)
-    let context := handoff.map (·.1.text) |>.getD ""
-    if let some (_, next) := handoff then state := next
-    state := {
-      state with
-      nextProfile := none
-      nextProjection := none
-      afterCompaction := false
-      lastReason := handoff.map (·.1.reason) |>.getD "no graph matched"
-    }
+  let some config ← configFromHook input cwd | return emptyHook
+  let prepared ← withSession session fun files => do
+    let mut state := (← readState? files).getD (defaultState config)
+    if !state.enabled then return none
+    if let some pending ← readPendingBase? files then
+      if pending.turnId == turn then return none
+      deferPending files pending
+    let selection ← IO.ofExcept (Config.resolve config (state.nextProfile.getD state.profile))
     let pending : PendingTurn := {
-      sessionId := session
-      turnId := turn
-      cwd := cwd.toString
-      prompt
-      profile := selection.label
-      semanticMatcher := selection.semanticMatcher
-      read := selection.read.map (·.path.toString)
-      write := selection.write.map (·.path.toString)
-      handoffChars := selection.handoffChars
-      localUnion := selection.localUnion
-      projection
-    }
+      sessionId := session, turnId := turn, cwd := cwd.toString, prompt,
+      profile := selection.label, semanticMatcher := selection.semanticMatcher,
+      read := selection.read.map (·.path.toString), write := selection.write.map (·.path.toString),
+      handoffChars := selection.handoffChars, localUnion := selection.localUnion,
+      projection := state.nextProjection.getD .automatic }
+    state := { state with
+      epoch := state.epoch + 1
+      offers := []
+      deliveredGraphs := state.deliveredGraphs.filter (fun key => !key.startsWith "d:"),
+      nextProfile := none, nextProjection := none }
     writeJson files.state state
     writeJson files.pending pending
-    pure <| if context = "" then emptyHook
-      else hookContext "UserPromptSubmit" context
+    pure (some pending)
+  let some pending := prepared | return emptyHook
+  Worker.cancel session "search"
+  let handoff ← deliverForWork input pending prompt false
+  let context := handoff.map (·.text) |>.getD ""
+  pure <| if context == "" then emptyHook else hookContext "UserPromptSubmit" context
 
 def toolFromHook (input : Json) (withResponse : Bool) : Except String ToolEvent := do
   pure {
@@ -229,33 +242,6 @@ def toolFromHook (input : Json) (withResponse : Bool) : Except String ToolEvent 
     input := jsonField input "tool_input"
     response := if withResponse then jsonField input "tool_response" else ""
   }
-
-def deliverForWork (session : String) (pending : PendingTurn)
-    (work : String) (enforce : Bool)
-    (evidenceText : Option String := none) (staged : List Value := []) :
-    IO (Option Handoff) :=
-  /-
-  Matching may be expensive, but the lock is per Codex session. This makes
-  graph novelty, byte-budget admission, and state publication one atomic
-  semi-naive step while unrelated sessions remain fully parallel.
-  -/
-  withSession session fun files => do
-    let some initial ← (readJson? files.state : IO (Option ThreadState)) |
-      pure none
-    if !initial.enabled then pure none
-    else if pending.projection != .automatic || pending.read.isEmpty then pure none
-    else
-      let handoff ← automaticHandoff (pendingSelection pending) work
-        initial.deliveredGraphs enforce evidenceText staged (!initial.afterCompaction)
-        pending.localUnion
-      match handoff with
-      | none => pure none
-      | some handoff =>
-          match recordHandoffWithin pending.handoffChars initial handoff with
-          | none => pure none
-          | some next =>
-              writeJson files.state next
-              pure (some handoff)
 
 inductive PreToolState where
   | ignore
@@ -270,16 +256,16 @@ def preToolUse (input : Json) : IO String := do
   let turn ← IO.ofExcept (requiredString input "turn_id")
   let tool ← IO.ofExcept (toolFromHook input false)
   let preflight ← withSession session fun files => do
-    let some state ← (readJson? files.state : IO (Option ThreadState)) |
+    let some state ← readState? files |
       pure PreToolState.ignore
     if !state.enabled then
       do
         removeIfExists files.pending
         pure PreToolState.ignore
     else
-      let some pending ← (readJson? files.pending : IO (Option PendingTurn)) |
+      let some pending ← readPendingBase? files |
         pure PreToolState.ignore
-      if pending.turnId != turn || pending.finalMessage.isSome then
+      if pending.turnId != turn || (pending.closed || pending.finalMessage.isSome) then
         pure PreToolState.ignore
       else
         let reserved := reserveTool pending tool
@@ -289,12 +275,11 @@ def preToolUse (input : Json) : IO String := do
   | .ignore => pure emptyHook
   | .reserved pending =>
       try
-        let staged ← IO.ofExcept (stagedGraphValues pending)
-        let handoff ← deliverForWork session pending
-          (canonicalToolWork tool) true none staged
+        let handoff ← deliverForWork input pending
+          (canonicalToolWork tool) true none true
         if handoff.any (·.blocksCurrent) then
           withSession session fun files => do
-            if let some current ← (readJson? files.pending : IO (Option PendingTurn)) then
+            if let some current ← readPendingBase? files then
               if current.turnId = turn then
                 writeJson files.pending (cancelTool current tool.useId)
           let text := handoff.map (·.text) |>.getD ""
@@ -320,36 +305,56 @@ def preToolUse (input : Json) : IO String := do
           pure <| if text = "" then emptyHook else hookContext "PreToolUse" text
       catch error =>
         withSession session fun files => do
-          if let some current ← (readJson? files.pending : IO (Option PendingTurn)) then
+          if let some current ← readPendingBase? files then
             if current.turnId = turn then
               writeJson files.pending (cancelTool current tool.useId)
         throw error
+
+/-- Journal native results before contacting the manager or doing any search. -/
+def captureTerminal (input : Json) : IO Unit := do
+  if optionalString input "hook_event_name" != some "PostToolUse" then return
+  let session ← IO.ofExcept (requiredString input "session_id")
+  let turn ← IO.ofExcept (requiredString input "turn_id")
+  let tool ← IO.ofExcept (toolFromHook input true)
+  let files ← sessionFiles session
+  -- These reads observe atomic metadata snapshots; no parser repair is done
+  -- outside the state lock. Failure leaves the native receipt available.
+  if let some state ← (readJson? files.state stateJsonDefaults : IO (Option ThreadState)) then
+    if !state.enabled then return
+  recordTool files turn tool
+  if let some pending ← (readJson? files.pending pendingJsonDefaults : IO (Option PendingTurn)) then
+    if pending.turnId == turn && !pending.closed && pending.finalMessage.isNone then
+      queueCheckpoint files { pending with tools := [tool], inFlight := [] }
 
 def postToolUse (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   let turn ← IO.ofExcept (requiredString input "turn_id")
   let tool ← IO.ofExcept (toolFromHook input true)
   let postflight ← withSession session fun files => do
-    let some state ← (readJson? files.state : IO (Option ThreadState)) |
+    let some state ← readState? files |
       pure PostToolState.ignore
     if !state.enabled then
       do
         removeIfExists files.pending
         pure PostToolState.ignore
     else
-      let some pending ← (readJson? files.pending : IO (Option PendingTurn)) |
+      let some pending ← readPendingBase? files |
         pure PostToolState.ignore
-      if pending.turnId != turn || pending.finalMessage.isSome then
+      if pending.turnId != turn || (pending.closed || pending.finalMessage.isSome) then
         pure PostToolState.ignore
       else
-        let pending := finishTool pending tool
+        recordTool files turn tool
+        queueCheckpoint files { pending with tools := [tool], inFlight := [] }
+        let pending := cancelTool pending tool.useId
         writeJson files.pending pending
+        let roots := observedRoots { pending with tools := [tool] }
+        writeJson files.state (addDeliveredGraphs state (roots.map nativeHistoryKey))
         pure (.completed pending)
   match postflight with
   | .ignore => pure emptyHook
   | .completed pending =>
       try
-        let handoff ← deliverForWork session pending
+        let handoff ← deliverForWork input pending
           (canonicalToolWork tool) false
           (if tool.response.trimAscii.isEmpty then none else some (canonicalJson tool.response))
         let text := handoff.map (·.text) |>.getD ""
@@ -361,63 +366,43 @@ def postToolUse (input : Json) : IO String := do
 def postCompact (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   withSession session fun files => do
-    if let some state ← (readJson? files.state : IO (Option ThreadState)) then
-      if !state.enabled then
-        removeIfExists files.pending
-      else
-        writeJson files.state {
-          state with
-          deliveredGraphs := []
-          afterCompaction := true
-          lastHandoff := ""
-          lastReason := "compacted; graph may be resent"
-        }
-    pure emptyHook
+    if let some state ← readState? files then
+      if state.enabled then writeJson files.state (compactState state)
+  Worker.cancel session "search"
+  pure emptyHook
 
 def stop (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   let turn := optionalString input "turn_id"
-  let finalMessage ← IO.ofExcept (requiredString input "last_assistant_message")
-  let sealed ← withSession session fun files => do
-    let some state ← (readJson? files.state : IO (Option ThreadState)) |
-      pure none
-    if !state.enabled then
-      removeIfExists files.pending
-    else if let some pending ← (readJson? files.pending : IO (Option PendingTurn)) then
+  let finalMessage := optionalString input "last_assistant_message"
+  withSession session fun files => do
+    let some state ← readState? files | return
+    if !state.enabled then return
+    if let some pending ← readPendingBase? files then
       if matchesHookTurn pending turn then
-        let pending := {
-          pending with
-          finalMessage := some finalMessage
-          /-
-          PreToolUse is only a transient duplicate-execution reservation.
-          A missing PostToolUse has no observed result and therefore contributes
-          no Outcome, but it cannot invalidate completed siblings or the parent
-          turn.  Stop discards precisely those unresolved reservations.
-          -/
-          inFlight := []
-        }
-        writeJson files.pending pending
-        return some pending
-    pure none
-  if let some pending := sealed then
-    if let some command := pending.semanticMatcher then
-      let text := pending.prompt ++ "\n" ++ pending.finalMessage.getD ""
-      SemanticMatcher.enqueueWork command (.text text) text
+        let sealed := { pending with finalMessage, closed := true, inFlight := [] }
+        writeJson files.pending sealed
+        queueCheckpoint files sealed
+        writeJson files.state { state with epoch := state.epoch + 1, offers := [] }
+  Worker.cancel session "search"
+  pure emptyHook
+
+def interrupt (input : Json) : IO String := do
+  let session ← IO.ofExcept (requiredString input "session_id")
+  withSession session fun files => do
+    if let some state ← readState? files then
+      writeJson files.state { state with epoch := state.epoch + 1, offers := [] }
+  Worker.cancel session "search"
   pure emptyHook
 
 def sessionEnd (input : Json) : IO String := do
   let session ← IO.ofExcept (requiredString input "session_id")
   withSession session fun files => do
-    let some state ← (readJson? files.state : IO (Option ThreadState)) | pure emptyHook
-    let some pending ← (readJson? files.pending : IO (Option PendingTurn)) | pure emptyHook
-    if !state.enabled then
-      removeIfExists files.pending
-      return emptyHook
-    -- Closing a chat must use the same recovery path as its next prompt.
-    -- Promotion failure leaves pending.json intact for a later retry.
-    let state ← resolveDefault files state pending
-    writeJson files.state state
-    pure emptyHook
+    if let some pending ← readPendingBase? files then deferPending files pending
+    if let some state ← readState? files then
+      writeJson files.state { state with epoch := state.epoch + 1, offers := [] }
+  Worker.cancel session "search"
+  pure emptyHook
 
 def dispatchHook (input : Json) : IO String := do
   let event ← IO.ofExcept (requiredString input "hook_event_name")
@@ -428,23 +413,8 @@ def dispatchHook (input : Json) : IO String := do
   | "PostToolUse" => postToolUse input
   | "PostCompact" => postCompact input
   | "Stop" => stop input
+  | "Interrupt" => interrupt input
   | "SessionEnd" => sessionEnd input
   | other => throw (IO.userError s!"unsupported Codex hook {other}")
-
-def codexHook : IO UInt32 := do
-  let inputText ← (← IO.getStdin).readToEnd
-  match Json.parse inputText with
-  | .error message =>
-      IO.eprintln s!"Eggshell ignored malformed hook input: {message}"
-      IO.println emptyHook
-      pure 0
-  | .ok input =>
-      try
-        IO.println (← dispatchHook input)
-        pure 0
-      catch error =>
-        IO.eprintln s!"Eggshell hook failed open: {error}"
-        IO.println emptyHook
-        pure 0
 
 end Eggshell.Plugin

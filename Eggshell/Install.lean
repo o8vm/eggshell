@@ -72,13 +72,14 @@ def pluginManifest : String := r##"{
 }"##
 
 def hooksManifest : String := r#"{
-  "description": "Select prior work before Codex acts and stage the completed turn.",
+  "description": "Record native results and deliver relevant prior work.",
   "hooks": {
     "SessionStart": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 30}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "additionalContextLimit": 48000, "timeout": 30}]}],
     "PreToolUse": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "additionalContextLimit": 48000, "timeout": 30}]}],
     "PostToolUse": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "additionalContextLimit": 48000, "timeout": 30}]}],
     "PostCompact": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 3}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 3}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 3}]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 3}]}]
   }
@@ -121,7 +122,7 @@ def pluginLauncher (root : System.FilePath) : String :=
   "#!/bin/sh\nset -eu\nEGGSHELL_PREFIX=" ++ shellQuote root.toString ++ r#"
 export EGGSHELL_PREFIX
 case "${1-}" in
-  codex-hook|codex-daemon) exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@" ;;
+  codex-hook|codex-daemon|codex-worker|codex-rpc) exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@" ;;
   *) exec "$EGGSHELL_PREFIX/libexec/eggshell" egg "$@" ;;
 esac
 "#

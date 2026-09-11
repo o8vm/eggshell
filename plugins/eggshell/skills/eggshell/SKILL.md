@@ -43,7 +43,8 @@ user shell commands inside Codex are:
 - `!egg graph`: the handoff actually delivered, without rerunning retrieval.
 - `!egg why`: selection details.
 - `!egg diff`: preview the staged turn before saving.
-- `!egg keep` / `!egg drop`: save or discard that staged turn.
+- `!egg keep`: explicitly save a finished turn (normal saving is automatic).
+- `!egg drop`: clear the active turn; saved observations and queued commits remain.
 - `!egg next private`: read memory without saving the next turn.
 - `!egg next off`: disable recording and context for the next turn.
 - `!egg off` / `!egg on`: disable or enable memory for the current chat.
@@ -56,7 +57,10 @@ a support report without authorization.
 ## Troubleshooting
 
 For missing context, check hook enablement, the active profile and paths, whether
-the earlier turn was kept, and whether the new request relates to that work.
+the earlier observations reached the selected `.egg`, and whether the new request
+relates to that work. Tool results are saved during the turn; the final answer is
+queued at Stop. A failed write stays queued and retries independently of hooks.
+Do not recommend repeating an investigation merely because a hook timed out.
 A new chat in another checkout may have a different work file. An empty handoff
 is possible when no relevant work is found.
 

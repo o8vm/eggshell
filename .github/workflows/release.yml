@@ -56,6 +56,8 @@ jobs:
         run: |
           lake build eggshell eggshell_tests
           EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
+          python3 tests/test_hook_lifecycle.py -v
+          python3 tests/test_plugin_package.py
       - name: Package
         shell: bash
         run: |
@@ -69,23 +71,41 @@ jobs:
           else
             sha256sum "$archive" | awk '{print $1}' > "$archive.sha256"
           fi
-      - name: Upload release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "$GITHUB_REF_NAME" \
-            "dist/eggshell-${{ matrix.target }}.tar.gz" \
-            "dist/eggshell-${{ matrix.target }}.tar.gz.sha256" \
-            --clobber \
-            --repo "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          retention-days: 7
 
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Publish GitHub Release
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist/runtimes
+      - name: Assemble plugin from tested runtimes
+        run: |
+          python3 scripts/package_plugin.py --runtime-dir dist/runtimes --output dist/publish --release "$GITHUB_REF_NAME"
+      - name: Publish runtime assets and plugin together
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/runtimes/*.tar.gz dist/runtimes/*.sha256 \
+            dist/publish/*.tar.gz dist/publish/eggshell-codex-plugin.zip \
+            --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eggshell-directory-package
+          path: |
+            dist/publish/eggshell-codex-plugin.zip
+            dist/publish/runtime.json
+          retention-days: 30

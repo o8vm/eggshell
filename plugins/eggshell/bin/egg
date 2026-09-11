@@ -13,6 +13,6 @@ if [ ! -x "$runtime" ] || [ ! -f "$marker" ] || [ "$(cat "$marker")" != "o8vm/eg
   exit 1
 fi
 case "${1-}" in
-  codex-hook|codex-daemon) exec "$runtime" "$@" ;;
+  codex-hook|codex-daemon|codex-worker|codex-rpc) exec "$runtime" "$@" ;;
   *) exec "$runtime" egg "$@" ;;
 esac

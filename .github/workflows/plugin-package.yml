@@ -30,6 +30,7 @@ jobs:
         run: |
           lake build eggshell eggshell_tests
           EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
+          python3 tests/test_hook_lifecycle.py -v
           python3 tests/test_plugin_package.py
       - name: Package runtime
         run: |

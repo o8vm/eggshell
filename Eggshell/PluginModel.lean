@@ -1,6 +1,8 @@
 module
 
 public import Eggshell.Config
+public import Eggshell.Blake3
+public import Eggshell.Lifecycle
 public import Lean.Data.Json.FromToJson
 
 @[expose] public section
@@ -15,6 +17,14 @@ inductive Projection where
   | roots (values : List String)
   deriving Repr, DecidableEq, ToJson, FromJson
 
+structure DeliveryOffer where
+  id : String
+  stamp : RequestStamp
+  graphs : List String
+  text : String
+  reason : String
+  deriving Repr, ToJson, FromJson
+
 structure ThreadState where
   profile : String
   /-- When false, hooks neither stage work nor read or send graph context. -/
@@ -26,6 +36,8 @@ structure ThreadState where
   afterCompaction : Bool := false
   lastHandoff : String := ""
   lastReason : String := ""
+  epoch : Nat := 0
+  offers : List DeliveryOffer := []
   deriving Repr, ToJson, FromJson
 
 structure ToolEvent where
@@ -54,6 +66,7 @@ structure PendingTurn where
   inFlight : List ToolEvent := []
   tools : List ToolEvent := []
   finalMessage : Option String := none
+  closed : Bool := false
   deriving Repr, ToJson, FromJson
 
 structure Promotion where
@@ -93,20 +106,34 @@ def sessionFiles (session : String) : IO SessionFiles := do
     lock := directory / "state"
   }
 
-def readJson? [FromJson α] (path : System.FilePath) : IO (Option α) := do
+def stateJsonDefaults : List (String × Json) :=
+  [("epoch", toJson (0 : Nat)), ("offers", toJson ([] : List DeliveryOffer))]
+
+def pendingJsonDefaults : List (String × Json) := [("closed", toJson false)]
+
+/-- Add only fields introduced by this runtime. Existing malformed fields must
+    still fail validation rather than being silently replaced. -/
+def readJson? [FromJson α] (path : System.FilePath)
+    (defaults : List (String × Json) := []) : IO (Option α) := do
   if !(← path.pathExists) then pure none
   else
     let text ← IO.FS.readFile path
     let parsed ← match Json.parse text with
       | .ok json => pure json
       | .error message => throw (IO.userError s!"{path}: {message}")
+    let parsed := match parsed with
+      | .obj _ => defaults.foldl (fun json (key, value) =>
+          if (json.getObjVal? key).isOk then json else json.setObjVal! key value) parsed
+      | _ => parsed
     match fromJson? parsed with
     | .ok value => pure (some value)
     | .error message => throw (IO.userError s!"{path}: {message}")
 
 def writeJson [ToJson α] (path : System.FilePath) (value : α) : IO Unit := do
   if let some parent := path.parent then Persistence.privateDirectory parent
-  let temporary := System.FilePath.mk (path.toString ++ ".tmp")
+  let temporary := System.FilePath.mk
+    (path.toString ++ ".tmp-" ++ toString (← IO.Process.getPID) ++ "-" ++
+      toString (← IO.monoNanosNow))
   IO.FS.writeFile temporary (toJson value |>.compress)
   Persistence.privateFile temporary
   IO.FS.rename temporary path
@@ -118,7 +145,70 @@ def removeIfExists (path : System.FilePath) : IO Unit := do
 def withSession (session : String) (action : SessionFiles → IO α) : IO α := do
   let files ← sessionFiles session
   Persistence.privateDirectory files.directory
-  Persistence.withLock files.lock (action files)
+  Persistence.withLockWithin files.lock 100 (action files)
+
+/-- Corrupt control state is retained for diagnosis, never repeatedly parsed. -/
+def quarantine (path : System.FilePath) : IO Unit := do
+  if ← path.pathExists then
+    let suffix := toString (← IO.monoNanosNow)
+    IO.FS.rename path (.mk (path.toString ++ ".corrupt-" ++ suffix))
+
+def readState? (files : SessionFiles) : IO (Option ThreadState) := do
+  try readJson? files.state stateJsonDefaults
+  catch error =>
+    quarantine files.state
+    let disabled : ThreadState := {
+      profile := "work", enabled := false,
+      lastReason := s!"memory disabled after invalid session state: {error}" }
+    writeJson files.state disabled
+    pure (some disabled)
+
+def readPendingBase? (files : SessionFiles) : IO (Option PendingTurn) := do
+  try readJson? files.pending pendingJsonDefaults
+  catch error =>
+    quarantine files.pending
+    IO.eprintln s!"Eggshell preserved an unreadable staged turn: {error}"
+    pure none
+
+def toolDirectory (files : SessionFiles) (turn : String) : System.FilePath :=
+  files.directory / "tools" / (Blake3.hex (Blake3.digest "eggshell.turn".toUTF8 [turn.toUTF8]))
+
+def recordTool (files : SessionFiles) (turn : String) (tool : ToolEvent) : IO Unit :=
+  writeJson (toolDirectory files turn /
+    (Blake3.hex (Blake3.digest "eggshell.tool".toUTF8 [tool.useId.toUTF8]) ++ ".json")) tool
+
+/-- Tool bodies are separate immutable receipts, not a growing JSON rewrite per hook. -/
+def loadToolReceipts (files : SessionFiles) (pending : PendingTurn) : IO PendingTurn := do
+  let directory := toolDirectory files pending.turnId
+  let mut tools := pending.tools
+  if ← directory.pathExists then
+    let entries := (← directory.readDir).toList.mergeSort (fun a b => a.fileName ≤ b.fileName)
+    for entry in entries do
+      if entry.fileName.endsWith ".json" then
+        try
+          if let some tool ← (readJson? entry.path : IO (Option ToolEvent)) then
+            tools := tools.filter (·.useId != tool.useId) ++ [tool]
+        catch error =>
+          IO.eprintln s!"Eggshell retained an unreadable tool receipt: {error}"
+  pure { pending with tools }
+
+def readPending? (files : SessionFiles) : IO (Option PendingTurn) := do
+  (← readPendingBase? files).mapM (loadToolReceipts files)
+
+/-- Immutable queue entries are removed only after the .egg commit succeeds. -/
+def queueCheckpoint (files : SessionFiles) (pending : PendingTurn) : IO Unit := do
+  let key := Blake3.hex (Blake3.digest "eggshell.checkpoint".toUTF8
+    [(toJson pending).compress.toUTF8])
+  writeJson (files.directory / "checkpoints" / (key ++ ".json")) pending
+
+def pendingSelection (pending : PendingTurn) : Config.Selection := {
+  label := pending.profile
+  semanticMatcher := pending.semanticMatcher
+  read := pending.read.map fun raw => { name := raw, path := System.FilePath.mk raw }
+  write := pending.write.map fun raw => { name := raw, path := System.FilePath.mk raw }
+  handoffChars := pending.handoffChars
+  localUnion := pending.localUnion
+}
 
 def valueEncoding (value : Value) : String :=
   Persistence.valueToJson value |>.compress
@@ -243,15 +333,19 @@ def compileOperationOutcomes (session turn : Value) (tool : ToolEvent) :
   let observed := Value.text (canonicalJson tool.response)
   observedWorkOutcome work observed (nativeOccurrence session turn tool)
 
+def operationChildren (pending : PendingTurn) : List Value :=
+  ((pending.tools.map fun tool =>
+    (compileOperationOutcomes (.text pending.sessionId) (.text pending.turnId) tool).1).eraseDups) ++
+    [HandoffRemainder.value pending.prompt]
+
+theorem operation_checkpoint_keeps_open_remainder (pending : PendingTurn) :
+    HandoffRemainder.value pending.prompt ∈ operationChildren pending := by
+  simp [operationChildren]
+
 def compileOperationGraph (pending : PendingTurn) : Except String (List Value × Value) := do
-  let session := Value.text pending.sessionId
-  let turn := Value.text pending.turnId
-  let facts := pending.tools.map (compileOperationOutcomes session turn)
-  let task := Value.text pending.prompt
-  let remainder := HandoffRemainder.value pending.prompt
-  let works := facts.map (·.1) |>.eraseDups
+  let facts := pending.tools.map (compileOperationOutcomes (.text pending.sessionId) (.text pending.turnId))
   let all ← relation? .all
-    (.semantic task :: (works ++ [remainder]).map Ref.semantic)
+    (.semantic (.text pending.prompt) :: (operationChildren pending).map Ref.semantic)
   pure (facts.map (·.2), all)
 
 /--
@@ -310,7 +404,7 @@ def compile (graph : Graph) (pending : PendingTurn) (target : String) :
   every Atom and occurrence, so duplicating that closure as top-level records
   changes no semantics and only inflates `.egg`.
   -/
-  match accepted : (Transaction.begin graph).stageValues? values with
+  match accepted : (Transaction.begin graph).stageValues? (values.filter (!graph.values.contains ·)) with
   | none => throw "turn compiler produced an invalid Value"
   | some transaction =>
       have source := Transaction.stageValues?_preserves_source accepted
@@ -340,5 +434,31 @@ def promote (pending : PendingTurn) (target : System.FilePath) : IO Promotion :=
     let compiled ← compile graph pending target.toString
     pure (compiled.transaction, compiled.promotion)
   pure promotion
+
+/-- Outcome roots in a live checkpoint come only from observed native operations. -/
+def observedRoots (pending : PendingTurn) : List Value :=
+  pending.tools.map fun tool =>
+    (compileOperationOutcomes (.text pending.sessionId) (.text pending.turnId) tool).2
+
+theorem checkpoint_ignores_parent_status (pending : PendingTurn)
+    (finalMessage : Option String) (inFlight : List ToolEvent) :
+    observedRoots { pending with finalMessage, inFlight } = observedRoots pending := by
+  rfl
+
+theorem checkpoint_has_only_observed_roots (pending : PendingTurn) (root : Value)
+    (present : root ∈ observedRoots pending) :
+    ∃ tool ∈ pending.tools,
+      (compileOperationOutcomes (.text pending.sessionId) (.text pending.turnId) tool).2 = root := by
+  simpa [observedRoots] using present
+
+def promoteObservations (pending : PendingTurn) (target : System.FilePath) : IO Promotion := do
+  -- Persist precisely the existing staged graph, including its open All edge.
+  -- This makes operations reusable children without completing the parent.
+  let roots ← IO.ofExcept (stagedGraphValues pending)
+  let _ ← Persistence.update target fun graph => do
+    let some transaction := (Transaction.begin graph).stageValues? (roots.filter (!graph.values.contains ·)) |
+      throw "observation compiler produced an invalid Value"
+    pure (transaction, ())
+  pure { outcomeRelations := observedRoots pending }
 
 end Eggshell.Plugin
