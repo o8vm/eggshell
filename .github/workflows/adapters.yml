@@ -6,9 +6,8 @@ on:
     paths:
       - 'adapters/**'
       - 'Eggshell/**'
-      - 'tests/test_adapters.py'
+      - 'adapters/native/Tests.lean'
       - 'tests/test_opencode_adapter.mjs'
-      - 'tests/test_hook_lifecycle.py'
       - '.github/workflows/adapters.yml'
       - 'lean-toolchain'
       - 'lakefile.lean'
@@ -31,8 +30,9 @@ jobs:
           auto-config: false
       - name: Build independent adapter companion
         working-directory: adapters/native
-        run: lake build
+        run: lake build eggshell_bridge adapter_tests
       - name: Engine integration contracts
-        run: python3 tests/test_adapters.py -v
+        working-directory: adapters/native
+        run: .lake/build/bin/adapter_tests
       - name: OpenCode output contracts
         run: node --test tests/test_opencode_adapter.mjs

@@ -1,6 +1,8 @@
 module
 
 public import Eggshell.Install
+public import Eggshell.SearchProvider
+import Eggshell.ContractAudit
 
 @[expose] public section
 
@@ -942,11 +944,10 @@ def testMiniLMDefault : IO Unit := do
   let python := MiniLM.unixPython paths
   if let some parent := python.parent then IO.FS.createDirAll parent
   IO.FS.writeFile python ""
-  IO.FS.writeFile paths.provider MiniLM.providerSource
   let some command ← MiniLM.command home pluginData |
     throw (IO.userError "installed MiniLM runtime was not selected by default")
-  check (command.head? = some python.toString &&
-      command.contains paths.provider.toString &&
+  check (command.head? = some (← IO.appPath).toString &&
+      command.contains "search-provider" &&
       command.contains paths.vectors.toString &&
       command.contains MiniLM.model)
     "default MiniLM command escaped its private runtime or Plugin cache"
@@ -1732,6 +1733,7 @@ def runTests : IO UInt32 := do
 
 def main (arguments : List String) : IO UInt32 :=
   match arguments with
+  | "search-provider" :: args => SearchProvider.run args
   | ["codex-worker", role] => Worker.run role
   | ["codex-daemon", session] => Plugin.Daemon.run session
   | ["codex-rpc", kind] => Plugin.Daemon.rpcClient kind

@@ -33,23 +33,22 @@ It saves work from one chat and makes relevant results available to a separate
 chat: repository searches, commands, documentation findings, and conclusions.
 It is useful when you return to related work in the same project.
 
-Use the published **Codex plugin**, or the separate, experimental
-[adapters for Claude Code, Gemini CLI, Cursor, and OpenCode](adapters/README.md).
-The adapters use the same memory engine and are built and installed separately.
-They have automated engine integration tests; live agent sessions and token
-savings have not yet been evaluated for those four clients.
-
-In the [recorded LLVM walkthrough](docs/demo.md), one chat maps how Clang chooses
-a toolchain. A new chat reuses those findings to investigate language and target
-edge cases, and reports what remains unverified. You ask ordinary questions;
-Eggshell selects prior work automatically. The walkthrough is an edited English
-summary of the study, with links to its measurement record.
-
 In our LLVM follow-up experiment, Eggshell used **about 80% fewer tokens than
 starting fresh**, with **9 of 10 answers needing no substantive correction**.
 Memory is built and organized locally, **without LLM calls or additional billed
 tokens for memory management**. These results cover one task with existing
 prior work; see [Evidence](#evidence) for the comparison and its limits.
+
+**[Watch the 30-second walkthrough](docs/demo.md)** or
+**[try it in two chats](docs/try-it.md)**. Ask ordinary questions: Eggshell
+automatically brings relevant findings from the first investigation into the
+follow-up. The walkthrough is an edited English summary of the measured study.
+
+Use the published **Codex plugin**, or the separate, experimental
+[adapters for Claude Code, Gemini CLI, Cursor, and OpenCode](adapters/README.md).
+The adapters use the same memory engine and are built and installed separately.
+They have automated engine integration tests; live agent sessions and token
+savings have not yet been evaluated for those four clients.
 
 ## Install
 
@@ -148,6 +147,10 @@ Eggshell preserves the earlier outcome so the agent can explain what changed.
 Search and graph processing run locally. Eggshell does not ask an LLM to write
 summaries, classify memories, or maintain the graph. Selected memory and the
 agent's subsequent work still consume the model's normal input and output tokens.
+The engine, adapters, retrieval selection, setup logic, and package builder are
+written in Lean. Python is confined to FastEmbed inference and the existing
+NumPy numerical kernels; it does not organize memory or select handoffs.
+See [verified contracts and runtime boundaries](docs/lean-boundaries.md).
 See the [architecture reference](docs/architecture.md) for matching, graph
 operations, and the Lean core.
 

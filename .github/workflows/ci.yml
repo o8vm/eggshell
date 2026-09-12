@@ -22,16 +22,17 @@ jobs:
         with:
           auto-config: false
       - name: Build
-        run: lake build eggshell eggshell_tests
+        run: lake build eggshell eggshell_tests lifecycle_tests eggshell_package setup_package_tests
       - name: Test
         run: EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
       - name: Hook lifecycle regressions
-        run: python3 tests/test_hook_lifecycle.py -v
+        run: .lake/build/bin/lifecycle_tests
       - name: Check plugin package
-        run: python3 tests/test_plugin_package.py
+        run: .lake/build/bin/setup_package_tests
       - name: Check installer syntax
         run: |
           sh -n install.sh
           sh -n plugins/eggshell/bin/egg
+          sh -n plugins/eggshell/scripts/setup.sh
       - name: Check two-chat sample
         run: python3 -m unittest discover -s examples/two-chats -v

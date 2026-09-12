@@ -22,9 +22,10 @@ deliver it. This difference is part of the integration contract.
 
 ## Install
 
-You need macOS or Linux, Python 3.9 or later, the project's pinned Lean
-toolchain, and an agent version supporting the events listed below. OpenCode
-uses its own JavaScript runtime; the plugin has no npm dependencies.
+You need macOS or Linux, the project's pinned Lean toolchain, and an agent
+version supporting the events listed below. Adapters run as a native Lean
+executable. Python is used only by the FastEmbed/NumPy numerical backend.
+OpenCode uses its own JavaScript runtime for host callbacks.
 
 From an Eggshell source checkout, install the local runtime and search model,
 then build the separate adapter companion:
@@ -33,7 +34,7 @@ then build the separate adapter companion:
 lake build eggshell
 .lake/build/bin/eggshell install runtime
 export PATH="${EGGSHELL_PREFIX:-$HOME/.local}/bin:$PATH"
-(cd adapters/native && lake build)
+(cd adapters/native && lake build eggshell_bridge)
 ```
 
 In a project without existing Eggshell project, parent, or global configuration,
@@ -43,10 +44,10 @@ profiles continue to apply.
 Back in the source checkout, choose **one** adapter:
 
 ```sh
-python3 adapters/install.py claude --project /absolute/path/to/project
-python3 adapters/install.py gemini --project /absolute/path/to/project
-python3 adapters/install.py cursor --project /absolute/path/to/project
-python3 adapters/install.py opencode --project /absolute/path/to/project
+adapters/native/.lake/build/bin/eggshell_bridge install claude --project /absolute/path/to/project
+adapters/native/.lake/build/bin/eggshell_bridge install gemini --project /absolute/path/to/project
+adapters/native/.lake/build/bin/eggshell_bridge install cursor --project /absolute/path/to/project
+adapters/native/.lake/build/bin/eggshell_bridge install opencode --project /absolute/path/to/project
 ```
 
 The installer copies the companion and adapters into
@@ -58,6 +59,9 @@ The installer does not enable globally disabled hooks or approve project trust.
 
 Review the new hooks or plugin in your agent, then restart the project chat.
 Installation alone does not demonstrate that memory is being saved or delivered.
+When upgrading from the experimental Python adapter, start a new chat: active
+SQLite correlation state is not imported. The native adapter rejects that old
+chat state, and existing `.egg` memory remains available to new chats.
 
 | Agent | Project file |
 | --- | --- |
@@ -79,9 +83,9 @@ The first chat's tool results should reach `.eggs/work.egg` before it finishes.
 For inspection, supply the native session ID from the agent's hook/debug output:
 
 ```sh
-python3 "$HOME/.local/share/eggshell-adapters/eggshell_adapter.py" \
+"$HOME/.local/share/eggshell-adapters/eggshell-bridge" \
   control claude --session NATIVE_SESSION_ID doctor
-python3 "$HOME/.local/share/eggshell-adapters/eggshell_adapter.py" \
+"$HOME/.local/share/eggshell-adapters/eggshell-bridge" \
   control claude --session NATIVE_SESSION_ID graph
 ```
 
@@ -96,7 +100,7 @@ It launches no model turn.
 From the source checkout:
 
 ```sh
-python3 adapters/install.py claude --project /absolute/path/to/project --uninstall
+adapters/native/.lake/build/bin/eggshell_bridge install claude --project /absolute/path/to/project --uninstall
 ```
 
 Only the exact entries installed by this adapter are removed. Modified or
@@ -106,9 +110,10 @@ memory are preserved.
 ## Boundaries and guarantees
 
 - **One engine manager per chat.** The adapter namespaces native session IDs by
-  harness. Its small SQLite database records opaque turn/call identifiers;
-  transactions finish before any engine or search call. It starts no additional
-  adapter manager and holds no cross-chat lock during normal operation.
+  harness and checks the full stored identity before reading correlation state.
+  Atomic JSON records replace the former Python/SQLite state. A short per-chat
+  transaction journals terminal results before marking calls consumed; no RPC
+  or search runs under that lock. It starts no additional adapter manager.
 - **The engine owns memory.** Tool names, inputs, and results are passed through
   to the existing engine. Its journal captures results before manager RPC or
   search. Search and saving retain their existing independent workers.
@@ -149,21 +154,23 @@ without inventing an answer.
 ## Development and contract tests
 
 ```sh
-(cd adapters/native && lake build)
-python3 tests/test_adapters.py -v
+(cd adapters/native && lake build eggshell_bridge adapter_tests && .lake/build/bin/adapter_tests)
 node --test tests/test_opencode_adapter.mjs
 ```
 
-Tests exercise actual engine processes, saving before turn completion, reuse in
+Tests are written in Lean and exercise actual engine processes, saving before turn completion, reuse in
 a separate chat, concurrent tool results, off mode, compaction receipts, output
 translation, and installation ownership. They make no LLM or network calls.
 The OpenCode output-object tests separately verify insertion-before-ack order.
 
 The dependency is one-way: `adapters/native` imports the engine as a local Lake
-dependency. `adapters/eggshell_adapter.py` owns host JSON translation and
-identifier correlation; `adapters/opencode.mjs` owns OpenCode plugin callbacks.
+dependency. Its `Adapter/Protocol.lean` owns host JSON translation and identifier
+correlation; `adapters/opencode.mjs` owns OpenCode plugin callbacks.
 The companion translates neither host tools nor retrieval results. No adapter
 code is linked into the existing `eggshell` executable or Codex plugin.
+
+The executable calls the functions proved in `Adapter/Contracts.lean`.
+See [Lean contracts and trusted boundaries](../docs/lean-boundaries.md).
 
 Reference contracts checked on 2026-09-12:
 [Claude Code hooks](https://code.claude.com/docs/en/hooks),

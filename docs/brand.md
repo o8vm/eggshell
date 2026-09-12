@@ -72,7 +72,8 @@ the caption **“AI memory. Fewer tokens.”** below. The README uses the same
 headline beneath its existing theme-aware horizontal logo. Installation
 documentation identifies the available integrations and their validation status.
 
-Regenerate both the self-contained SVG and PNG with
-`python3 scripts/render_social_preview.py` (requires `rsvg-convert`). GitHub
+The checked-in SVGs are the editable source. Regenerate their PNG exports with
+`lake build eggshell_render` followed by `.lake/build/bin/eggshell_render social`
+(requires `rsvg-convert`). GitHub
 stores one social preview image; the separate dark export is available for
 other placements.

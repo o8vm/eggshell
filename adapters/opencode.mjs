@@ -2,13 +2,12 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-const adapter = fileURLToPath(new URL('./eggshell_adapter.py', import.meta.url));
 const bridge = fileURLToPath(new URL('./eggshell-bridge', import.meta.url));
 const prefix = fileURLToPath(new URL('../../', import.meta.url));
 
 function command(mode, payload, directory) {
   return new Promise((resolve, reject) => {
-    const child = spawn('python3', [adapter, mode, 'opencode', '--bridge', bridge], {
+    const child = spawn(bridge, [mode, 'opencode'], {
       cwd: directory, stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, EGGSHELL_PREFIX: prefix },
     });

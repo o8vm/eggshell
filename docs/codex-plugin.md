@@ -49,7 +49,7 @@ never download dependencies or prevent the task from continuing. If no startup
 message appears, check `/hooks`: an untrusted hook cannot display its own notice.
 
 To inspect an installation without changes, run
-`python3 <plugin-root>/scripts/setup.py --check --project <absolute-project-path>`.
+`sh <plugin-root>/scripts/setup.sh --check --project <absolute-project-path>`.
 For setup, omit `--check`. The default project is the current directory.
 
 **Supported execution environment:** Codex with local command hooks on macOS or

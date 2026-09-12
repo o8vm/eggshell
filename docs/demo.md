@@ -147,10 +147,12 @@ translated; full private transcripts and local filesystem paths are not
 republished. Hashes establish which local records were inspected, but are not
 a substitute for access to those records.
 
-The graphics take their numerical values from the measurement record. To
-regenerate the SVGs, GIF, and MP4 with Python 3, `rsvg-convert`, ImageMagick, and
-FFmpeg installed:
+The checked-in SVGs contain the reviewed figures from the measurement record.
+The Lean renderer checks that record's fingerprint before rendering the GIF
+and MP4. If the record changes, review the SVG figures and update the fingerprint.
+With `rsvg-convert`, ImageMagick, and FFmpeg installed:
 
 ```sh
-python3 scripts/render_demo.py
+lake build eggshell_render
+.lake/build/bin/eggshell_render demo
 ```

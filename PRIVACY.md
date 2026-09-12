@@ -50,8 +50,8 @@ command, to disable both recording and handoff delivery for that session.
   `$EGGSHELL_PREFIX/share/eggshell/plugin`. Integrations use this stable root,
   with separate adapter session namespaces for each harness. It does not select
   or relocate any saved `.egg` file.
-- Adapters store opaque turn/call identifiers and correlation hashes in
-  per-session SQLite files under the data root's `adapters` directory. Writable
+- Adapters store session ownership, opaque turn/call identifiers, and correlation
+  hashes in per-session JSON files under the data root's `adapters` directory. Writable
   turns may also retain an authorized turn snapshot for late tool results and
   a temporary answer candidate under their session directory. Ambiguous Gemini
   tool results, when recording is permitted, stay in `adapters/unattributed`

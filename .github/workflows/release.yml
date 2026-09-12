@@ -54,10 +54,10 @@ jobs:
           auto-config: false
       - name: Build and test
         run: |
-          lake build eggshell eggshell_tests
+          lake build eggshell eggshell_tests lifecycle_tests eggshell_package setup_package_tests
           EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
-          python3 tests/test_hook_lifecycle.py -v
-          python3 tests/test_plugin_package.py
+          .lake/build/bin/lifecycle_tests
+          .lake/build/bin/setup_package_tests
       - name: Package
         shell: bash
         run: |
@@ -84,6 +84,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -91,7 +94,8 @@ jobs:
           path: dist/runtimes
       - name: Assemble plugin from tested runtimes
         run: |
-          python3 scripts/package_plugin.py --runtime-dir dist/runtimes --output dist/publish --release "$GITHUB_REF_NAME"
+          lake build eggshell_package
+          .lake/build/bin/eggshell_package --runtime-dir dist/runtimes --output dist/publish --release "$GITHUB_REF_NAME"
       - name: Publish runtime assets and plugin together
         env:
           GH_TOKEN: ${{ github.token }}

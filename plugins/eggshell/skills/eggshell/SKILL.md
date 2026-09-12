@@ -18,14 +18,14 @@ integration needs Codex; do not claim that selecting the plugin activates memory
 1. Check macOS/Linux, ARM64/x86-64, Python 3, and Codex command-hook support.
    Resolve this skill's installed path: the plugin root is two levels above
    this `SKILL.md` directory. Use absolute paths for the bundled helpers.
-2. Check existing setup with `python3 <plugin-root>/scripts/setup.py --check --project <absolute-project-path>`.
+2. Check existing setup with `sh <plugin-root>/scripts/setup.sh --check --project <absolute-project-path>`.
    This only inspects configuration and does not download or enable anything.
    `missing` or `update_required` means setup is needed. A ready configuration
    can proceed directly to hook review; do not reinstall merely to check it.
    Explain that setup downloads a checksummed Eggshell runtime, Python packages,
    and MiniLM. The default install root is `~/.local`; preserve an existing
    `EGGSHELL_PREFIX`. Once setup is authorized, run
-   `python3 <plugin-root>/scripts/setup.py --project <absolute-project-path>`.
+   `sh <plugin-root>/scripts/setup.sh --project <absolute-project-path>`.
    This installs the runtime and initializes missing project settings, preserving
    existing project and global configuration. Do not run the standalone release installer
    after directory installation; it registers another copy of the hooks.
