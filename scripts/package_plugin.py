@@ -40,9 +40,9 @@ def package(runtime_dir, output, release):
         manifest['interface'].update({
             'logo': './assets/icon.png', 'composerIcon': './assets/icon.png',
             'privacyPolicyURL': 'https://github.com/momonpya/eggshell/blob/main/PRIVACY.md',
-            'defaultPrompt': ['Set up Eggshell for this Codex project.',
-                              'Show what Eggshell handed to this task and why it was selected.',
-                              'Help me inspect pending Eggshell work before keeping it.']})
+            'defaultPrompt': ['Set up Eggshell for this project.',
+                              'Check whether Eggshell memory is working in this project.',
+                              'Show what Eggshell handed to this task and why it was selected.']})
         manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
         (plugin / 'runtime.json').write_text(json.dumps(runtime, indent=2) + '\n')
         archive_path = output / 'eggshell-codex-plugin.zip'

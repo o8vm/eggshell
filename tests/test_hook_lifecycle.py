@@ -109,6 +109,49 @@ class LifecycleTests(unittest.TestCase):
         path = self.root / 'work.egg'
         return path.read_bytes() if path.exists() else b''
 
+    def test_setup_status_reports_actual_hook_and_preserves_compaction(self):
+        started, _ = self.hook('SessionStart', source='startup')
+        self.assertIn('session hook connected', started['systemMessage'])
+        self.assertIn('memory read/write', started['systemMessage'])
+        self.assertNotIn('hookSpecificOutput', started)
+        env = dict(self.env, CODEX_THREAD_ID='chat')
+        before = self.state()
+        result = subprocess.run([BIN, 'egg', 'doctor'], env=env, cwd=self.root,
+                                capture_output=True, text=True, check=True)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['configuration'], 'ready')
+        self.assertTrue(report['session_state_present'])
+        self.assertFalse(report['handoff_observed'])
+        self.assertEqual(self.state(), before)
+        compacted, _ = self.hook('SessionStart', source='compact')
+        self.assertEqual(compacted, {})
+        self.assertEqual(self.state()['epoch'], before['epoch'] + 1)
+        subprocess.run([BIN, 'egg', 'off'], env=env, cwd=self.root,
+                       capture_output=True, check=True)
+        resumed, _ = self.hook('SessionStart', source='resume')
+        self.assertIn('memory is off', resumed['systemMessage'])
+        self.assertFalse(self.state()['enabled'])
+
+    def test_missing_configuration_notice_and_readonly_doctor(self):
+        self.env.pop('EGGSHELL_CONFIG', None)
+        self.env['EGGSHELL_PREFIX'] = str(self.root / 'prefix')
+        (self.root / '.eggshell.toml').unlink()
+        doctor = subprocess.run([BIN, 'egg', 'doctor'], env=self.env, cwd=self.root,
+                                text=True, capture_output=True, check=True)
+        self.assertEqual(json.loads(doctor.stdout)['configuration'], 'missing')
+        self.assertFalse(self.data.exists())
+        message, _ = self.hook('SessionStart', source='startup')
+        self.assertIn('not configured', message['systemMessage'])
+        self.assertNotIn('hookSpecificOutput', message)
+        self.assertFalse(self.egg())
+        state = self.data / 'sessions/chat/state.json'
+        state.write_text('{broken')
+        result = subprocess.run([BIN, 'egg', 'doctor'], cwd=self.root,
+            env=dict(self.env, CODEX_THREAD_ID='chat'), text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state.read_text(), '{broken')
+        self.assertFalse(list(state.parent.glob('*.corrupt-*')))
+
     def test_partial_results_reach_egg_before_stop_and_replay_is_idempotent(self):
         self.start()
         # Existing installations have no lifecycle epoch/offers/closed fields.

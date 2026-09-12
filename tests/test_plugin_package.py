@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -67,6 +68,123 @@ class PackageTests(unittest.TestCase):
             result = subprocess.run([launcher, 'inspect'], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('not installed', result.stderr)
+
+    def test_missing_runtime_notice_is_startup_only_and_never_blocks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, EGGSHELL_PREFIX=directory)
+            launcher = ROOT / 'plugins/eggshell/bin/egg'
+            hooks = json.loads((ROOT / 'plugins/eggshell/hooks/hooks.json').read_text())
+            for source in ['startup', 'resume', 'clear', 'compact']:
+                matched = [g for g in hooks['hooks']['SessionStart']
+                           if re.search(g.get('matcher', ''), source)]
+                self.assertEqual(len(matched), 1)
+                entry = matched[0]['hooks'][0]['command'].split()[-1]
+                result = subprocess.run([launcher, entry], env=env, input=json.dumps({
+                    'hook_event_name': 'SessionStart', 'source': source}),
+                    capture_output=True, text=True, timeout=2)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                reply = json.loads(result.stdout)
+                if source == 'compact':
+                    self.assertEqual(reply, {})
+                else:
+                    self.assertIn('memory is not active', reply['systemMessage'])
+                    self.assertIn('Set up Eggshell', reply['systemMessage'])
+                    self.assertNotIn('continue', reply)
+                    self.assertNotIn('hookSpecificOutput', reply)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_startup_launcher_forwards_the_original_hook_input(self):
+        with tempfile.TemporaryDirectory(prefix="egg prefix's ") as directory:
+            root = Path(directory)
+            runtime = root / 'libexec/eggshell'
+            runtime.parent.mkdir()
+            runtime.write_text('#!/bin/sh\n[ "$1" = codex-hook ] || exit 9\ncat\n')
+            runtime.chmod(0o755)
+            (root / 'libexec/eggshell.owner').write_text('o8vm/eggshell\n')
+            payload = json.dumps({'hook_event_name': 'SessionStart', 'cwd': "a b'c",
+                                  'session_id': 'a-chat'})
+            result = subprocess.run([ROOT / 'plugins/eggshell/bin/egg', 'codex-start'],
+                input=payload, text=True, capture_output=True,
+                env=dict(os.environ, EGGSHELL_PREFIX=directory))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, payload)
+
+    def test_project_setup_preserves_parent_and_global_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            project = root / 'project'
+            project.mkdir()
+            env = dict(os.environ, EGGSHELL_PREFIX=str(root / 'prefix'),
+                       EGGSHELL_DATA_ROOT=str(root / 'data'))
+            env.pop('EGGSHELL_CONFIG', None)
+            env.pop('CODEX_THREAD_ID', None)
+            runtime = ROOT / '.lake/build/bin/eggshell'
+            report = setup.initialize_project(runtime, project, env)
+            self.assertEqual(report['configuration'], 'ready')
+            self.assertFalse(report['session_state_present'])
+            self.assertFalse(report['handoff_observed'])
+            config = project / '.eggshell.toml'
+            custom = config.read_text().replace('default = "work"', 'default = "private"')
+            config.write_text(custom)
+            nested = project / 'nested'
+            nested.mkdir()
+            report = setup.initialize_project(runtime, nested, env)
+            self.assertEqual(report['memory'], 'read-only')
+            self.assertEqual(config.read_text(), custom)
+            self.assertFalse((nested / '.eggshell.toml').exists())
+            self.assertFalse((project / '.eggs/work.egg').exists())
+            other = root / 'other'
+            other.mkdir()
+            global_config = root / 'prefix/config/eggshell/config.toml'
+            global_config.parent.mkdir(parents=True)
+            global_config.write_text(custom)
+            report = setup.initialize_project(runtime, other, env)
+            self.assertEqual(report['memory'], 'read-only')
+            self.assertFalse((other / '.eggshell.toml').exists())
+            self.assertEqual(global_config.read_text(), custom)
+            self.assertFalse((root / 'data').exists())
+
+    def test_setup_check_does_not_install_or_initialize(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = subprocess.run(['python3', ROOT / 'plugins/eggshell/scripts/setup.py',
+                '--check', '--prefix', str(root / 'missing'), '--project', str(root)],
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(json.loads(result.stdout)['runtime'], 'missing')
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_invalid_existing_configuration_is_reported_and_retained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            config = root / '.eggshell.toml'
+            config.write_text('default = true\n')
+            env = dict(os.environ, EGGSHELL_PREFIX=str(root / 'prefix'),
+                       EGGSHELL_DATA_ROOT=str(root / 'data'))
+            env.pop('EGGSHELL_CONFIG', None)
+            env.pop('CODEX_THREAD_ID', None)
+            with self.assertRaisesRegex(ValueError, 'expected quoted TOML string'):
+                setup.initialize_project(ROOT / '.lake/build/bin/eggshell', root, env)
+            self.assertEqual(config.read_text(), 'default = true\n')
+            self.assertFalse((root / '.eggs').exists())
+            self.assertFalse((root / 'data').exists())
+
+    def test_setup_check_identifies_an_older_runtime_without_modifying_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / 'libexec/eggshell'
+            runtime.parent.mkdir()
+            old = '#!/bin/sh\n[ "$2" = --help ] || exit 99\nprintf "usage: egg [init|inspect]\\n"\n'
+            runtime.write_text(old)
+            runtime.chmod(0o755)
+            (runtime.parent / 'eggshell.owner').write_text('o8vm/eggshell\n')
+            result = subprocess.run(['python3', ROOT / 'plugins/eggshell/scripts/setup.py',
+                '--check', '--prefix', str(root), '--project', str(root)],
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['runtime'], 'update_required')
+            self.assertEqual(runtime.read_text(), old)
+            self.assertFalse((root / '.eggshell.toml').exists())
 
     def test_runtime_install_preserves_plugin_and_memory(self):
         with tempfile.TemporaryDirectory(prefix="egg package's ") as directory:
