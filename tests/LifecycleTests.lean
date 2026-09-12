@@ -301,12 +301,22 @@ def withFixture (test : Fixture → IO Unit) : IO Unit := do
   try test f
   finally
     let sessions := root / "data" / "sessions"
+    let mut managers : List Nat := []
     if ← sessions.isDir then
       for entry in ← sessions.readDir do
         try
           let endpoint ← IO.ofExcept (fromJson? (← readObject (entry.path / "daemon.json")) : Except String Daemon.Endpoint)
+          managers := endpoint.pid :: managers
           let _ ← Daemon.exchange endpoint "shutdown" .null
         catch _ => pure ()
+    -- A shutdown reply acknowledges the request before the manager has removed
+    -- its endpoint and stopped writing. Wait for process exit before traversing
+    -- the fixture tree; otherwise removeDirAll can race daemon.json removal.
+    for pid in managers do
+      awaitCondition (do
+        let result ← IO.Process.output { cmd := "ps", args := #["-o", "stat=", "-p", toString pid] }
+        let status := result.stdout.trimAscii.toString
+        return status.isEmpty || status.startsWith "Z") "fixture manager shutdown"
     IO.FS.removeDirAll root
 
 def main (args : List String) : IO UInt32 := do
