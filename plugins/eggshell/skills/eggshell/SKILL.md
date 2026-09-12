@@ -11,24 +11,38 @@ normal tasks do not need model-authored summaries or manual memory maintenance.
 
 ## Setup
 
+Ordinary ChatGPT Chat does not run Eggshell's automatic memory hooks. If the
+current surface lacks a local shell and Codex command hooks, explain that this
+integration needs Codex; do not claim that selecting the plugin activates memory.
+
 1. Check macOS/Linux, ARM64/x86-64, Python 3, and Codex command-hook support.
    Resolve this skill's installed path: the plugin root is two levels above
    this `SKILL.md` directory. Use absolute paths for the bundled helpers.
-2. Explain that setup downloads a checksummed Eggshell runtime, Python packages,
+2. Check existing setup with `sh <plugin-root>/scripts/setup.sh --check --project <absolute-project-path>`.
+   This only inspects configuration and does not download or enable anything.
+   `missing` or `update_required` means setup is needed. A ready configuration
+   can proceed directly to hook review; do not reinstall merely to check it.
+   Explain that setup downloads a checksummed Eggshell runtime, Python packages,
    and MiniLM. The default install root is `~/.local`; preserve an existing
-   `EGGSHELL_PREFIX`. Once setup is authorized, run `python3 <plugin-root>/scripts/setup.py`.
-   This installs only the runtime. Do not run the standalone release installer
+   `EGGSHELL_PREFIX`. Once setup is authorized, run
+   `sh <plugin-root>/scripts/setup.sh --project <absolute-project-path>`.
+   This installs the runtime and initializes missing project settings, preserving
+   existing project and global configuration. Do not run the standalone release installer
    after directory installation; it registers another copy of the hooks.
 3. Check `codex plugin list --marketplace eggshell --json` for the older standalone
    installation. If migrating that installation, remove only `eggshell@eggshell`
    with `codex plugin remove eggshell@eggshell --json` before enabling directory
    hooks. Keep the runtime and `.egg` files. Do not remove unrelated plugins.
-4. In the intended project, check for `.eggshell.toml`. If absent, run
-   `<prefix>/bin/egg init`; if present, inspect it and retain the user's settings.
-   Add `<prefix>/bin` to the relevant PATH. Custom prefixes must also be present
+4. Inspect the setup report: configuration must be `ready`. Report `off` or
+   `read-only` accurately; do not enable saving against an existing preference.
+   Add `<prefix>/bin` to the relevant PATH for `!egg` controls. Custom prefixes must also be present
    in Codex's environment as `EGGSHELL_PREFIX`.
 5. Have the user review and enable Eggshell's hooks through `/hooks`, then start
-   a new chat. Verify memory with an actual related two-chat example: complete
+   a new chat. The startup message **Eggshell session hook connected** confirms
+   that the session hook ran. Run `!egg doctor` in that chat to inspect setup.
+   A configuration report alone does not prove hook trust or successful delivery.
+   If no startup message appears, inspect `/hooks`; never bypass its trust checks.
+6. Verify memory with an actual related two-chat example: complete
    an investigation, run `!egg keep`, ask a related question in a separate chat
    in the same project, and inspect `!egg graph`. Installation alone does not
    prove that a handoff was received.
@@ -40,6 +54,7 @@ user shell commands inside Codex are:
 
 - `!egg`: settings and staged turn.
 - `!egg inspect`: resolved files and stored-state identifiers.
+- `!egg doctor`: read setup and current session status without changing it.
 - `!egg graph`: the handoff actually delivered, without rerunning retrieval.
 - `!egg why`: selection details.
 - `!egg diff`: preview the staged turn before saving.
@@ -63,6 +78,11 @@ queued at Stop. A failed write stays queued and retries independently of hooks.
 Do not recommend repeating an investigation merely because a hook timed out.
 A new chat in another checkout may have a different work file. An empty handoff
 is possible when no relevant work is found.
+
+At startup, a missing runtime or project configuration produces a short setup
+message. Other missing-runtime hook calls remain nonblocking and quiet, and
+compaction never replays the setup notice. Setup messages are UI status, not
+memory context. Do not call memory active merely because the plugin is installed.
 
 For setup failures, use the actual error. A checksum mismatch must stop setup;
 do not bypass verification. Hooks perform no dependency downloads. Missing

@@ -17,9 +17,9 @@ EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" \
 
 Tests must use an isolated absolute `EGGSHELL_DATA_ROOT`; they refuse the normal
 user data directory. Keep public claims tied to completed, reproducible measurements.
-The shipped local search provider is also exercised with its installed MiniLM
-Python environment: `python tests/test_search_provider.py`. The model must already
-be cached; the test uses offline mode and makes no generative model requests.
+Build `search_tests` and run `.lake/build/bin/search_tests` to exercise the shipped
+local search provider. Its MiniLM numerical runtime and model must already be
+cached; the test uses offline mode and makes no generative model requests.
 For performance work, total tokens mean input plus reasoning output plus final
 output. Quality non-regression and `.egg` growth are constraints; tool count and
 elapsed time are diagnostics.
@@ -37,13 +37,13 @@ private benchmark transcripts.
 launcher. The standalone installer embeds its manifest and hooks in
 `Eggshell/Install.lean`; the existing test enforces that those definitions match.
 
-Run `python3 tests/test_plugin_package.py` after building the executable when
-changing package setup or runtime installation. These checks exercise checksum
-rejection, archive validation, missing-runtime hooks, and preservation of
-existing plugin registration and memory during runtime-only installation.
+Build `eggshell`, `eggshell_package`, and `setup_package_tests`, then run
+`.lake/build/bin/setup_package_tests` when changing setup or packaging.
+These native tests check configuration preservation, read-only inspection,
+runtime checksums, ZIP readability, and deterministic packaging.
 
 The manually dispatched **Plugin package** workflow builds and tests all four
-platform runtimes, then runs `scripts/package_plugin.py`. It publishes a small
+platform runtimes, then runs the Lean `eggshell_package` executable. It publishes a small
 `eggshell-codex-plugin.zip` and runtime archives whose names include their content
 hashes on the release matching the plugin version. Existing standalone release
 archives and the release tag are preserved. The ZIP pins the exact runtime

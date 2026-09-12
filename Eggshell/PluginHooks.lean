@@ -124,13 +124,28 @@ def sessionStart (input : Json) : IO String := do
     withSession session fun files => do
       if let some state ← readState? files then
         if state.enabled then writeJson files.state (compactState state)
+    return emptyHook
   else
     let cwd := System.FilePath.mk ((optionalString input "cwd").getD ".")
     let config ← configFromHook input cwd
-    withSession session fun files => do
-      if (← readState? files).isNone then
-        if let some config := config then writeJson files.state (defaultState config)
-  pure emptyHook
+    let state ← withSession session fun files => do
+      let state ← readState? files
+      if state.isNone then
+        if let some config := config then
+          let state := defaultState config
+          writeJson files.state state
+          return some state
+      pure state
+    let some config := config |
+      return systemMessage "Eggshell memory is not configured for this project. Ask Codex: Set up Eggshell for this project."
+    let some state := state | return emptyHook
+    if !state.enabled then
+      return systemMessage "Eggshell memory is off for this chat. Use !egg on only if you want to enable it."
+    let selection ← IO.ofExcept (Config.resolve config state.profile)
+    let mode := if selection.read.isEmpty && selection.write.isNone then "off"
+      else if selection.write.isNone then "read-only" else "read/write"
+    return systemMessage (s!"Eggshell session hook connected: memory {mode}, profile {state.profile}. " ++
+      "Use !egg doctor to check setup; !egg graph shows context actually delivered.")
 
 def acceptOffer (state : ThreadState) (turn : String) (now : Nat)
     (offer : DeliveryOffer) : ThreadState :=

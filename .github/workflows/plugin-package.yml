@@ -28,10 +28,10 @@ jobs:
           auto-config: false
       - name: Build and test
         run: |
-          lake build eggshell eggshell_tests
+          lake build eggshell eggshell_tests lifecycle_tests eggshell_package setup_package_tests
           EGGSHELL_DATA_ROOT="$PWD/.lake/eggshell-tests-data" .lake/build/bin/eggshell_tests
-          python3 tests/test_hook_lifecycle.py -v
-          python3 tests/test_plugin_package.py
+          .lake/build/bin/lifecycle_tests
+          .lake/build/bin/setup_package_tests
       - name: Package runtime
         run: |
           mkdir -p dist
@@ -48,6 +48,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
       - uses: actions/download-artifact@v4
         with:
           pattern: runtime-*
@@ -55,13 +58,14 @@ jobs:
           path: dist/runtimes
       - name: Assemble plugin
         run: |
-          version="$(python3 -c 'import json; print(json.load(open("plugins/eggshell/.codex-plugin/plugin.json"))["version"])')"
-          python3 scripts/package_plugin.py --runtime-dir dist/runtimes --output dist/publish --release "v$version"
+          lake build eggshell_package
+          version="$(.lake/build/bin/eggshell_package --version)"
+          .lake/build/bin/eggshell_package --runtime-dir dist/runtimes --output dist/publish --release "v$version"
       - name: Publish pinned runtime assets and plugin ZIP
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="$(python3 -c 'import json; print(json.load(open("plugins/eggshell/.codex-plugin/plugin.json"))["version"])')"
+          version="$(.lake/build/bin/eggshell_package --version)"
           gh release view "v$version" --repo "$GITHUB_REPOSITORY"
           gh release upload "v$version" dist/publish/*.tar.gz dist/publish/eggshell-codex-plugin.zip --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4

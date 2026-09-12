@@ -55,7 +55,7 @@ exercise moves to a separate chat. `!egg inspect` should identify the sample's
 Confirm the file exists and is nonempty from the sample's terminal:
 
 ```sh
-python3 -c 'from pathlib import Path; p = Path(".eggs/work.egg"); print("saved work found" if p.is_file() and p.stat().st_size else "no saved work yet")'
+test -s .eggs/work.egg && echo 'saved work found' || echo 'no saved work yet'
 ```
 
 The file's presence confirms persistence. Its size does not establish relevance

@@ -47,7 +47,7 @@ def initCommand : IO UInt32 := do
 def pluginManifest : String := r##"{
   "name": "eggshell",
   "version": "0.1.0",
-  "description": "Carry useful work across Codex chats with local memory you control",
+  "description": "Local memory that helps AI agents reuse work and spend fewer tokens",
   "author": {
     "name": "momonpya",
     "url": "https://github.com/momonpya"
@@ -55,18 +55,25 @@ def pluginManifest : String := r##"{
   "homepage": "https://github.com/momonpya/eggshell",
   "repository": "https://github.com/momonpya/eggshell",
   "license": "Apache-2.0",
-  "keywords": ["codex", "agent-memory", "work-graph", "productivity"],
+  "keywords": [
+    "codex",
+    "agent-memory",
+    "work-graph",
+    "productivity"
+  ],
   "interface": {
     "displayName": "Eggshell",
-    "shortDescription": "Local memory for Codex",
-    "longDescription": "Eggshell saves requests, tool results, and conclusions in local .egg files. Related Codex chats receive selected prior work and instructions to reuse supported findings, check changed facts, and report what remains unverified. Memory is organized locally without additional LLM calls. Requires macOS or Linux, Python 3, and Codex command hooks.",
+    "shortDescription": "Token-saving local memory",
+    "longDescription": "Eggshell helps AI agents reuse prior work and spend fewer tokens. The current integration supports Codex with local command hooks on macOS or Linux.\n\nRequests, tool results, and conclusions stay in local .egg files. Related chats receive selected findings and instructions to check changed facts and report what remains unverified. Memory organization and retrieval run locally without generative LLM calls. Ordinary task and handoff tokens still count toward model usage. There is no hosted memory service or telemetry.\n\nAfter installing, ask Codex: Set up Eggshell for this project. Setup downloads a checksummed runtime, Python dependencies, and a search model, then initializes missing project settings while preserving existing configuration. Review and enable the hooks in /hooks and start a new chat. Installation alone does not activate memory.\n\nA startup notice identifies missing setup or confirms that the session hook ran. Use !egg doctor to check configuration without changing settings. Complete an investigation and a related follow-up in a separate chat, then use !egg graph to inspect the memory actually delivered. Once configured and enabled, saving and relevant handoffs happen automatically.\n\nThis integration does not provide automatic memory in ordinary ChatGPT Chat. Other agent harnesses are not yet supported. Use !egg off to disable memory; !egg drop clears the active turn but retains saved observations and queued commits.",
     "developerName": "momonpya",
     "category": "Productivity",
     "capabilities": [],
     "websiteURL": "https://github.com/momonpya/eggshell",
     "brandColor": "#6B6256",
     "defaultPrompt": [
-      "Continue this task from relevant prior work without repeating completed investigation."
+      "Set up Eggshell for this project.",
+      "Check whether Eggshell memory is working in this project.",
+      "Show what Eggshell handed to this task and why it was selected."
     ]
   }
 }"##
@@ -74,7 +81,10 @@ def pluginManifest : String := r##"{
 def hooksManifest : String := r#"{
   "description": "Record native results and deliver relevant prior work.",
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 30}]}],
+    "SessionStart": [
+      {"matcher": "^(startup|resume|clear)$", "hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-start", "timeout": 30}]},
+      {"matcher": "^compact$", "hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "timeout": 30}]}
+    ],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "additionalContextLimit": 48000, "timeout": 30}]}],
     "PreToolUse": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "additionalContextLimit": 48000, "timeout": 30}]}],
     "PostToolUse": [{"hooks": [{"type": "command", "command": "\"${PLUGIN_ROOT}/bin/egg\" codex-hook", "additionalContextLimit": 48000, "timeout": 30}]}],
@@ -122,6 +132,7 @@ def pluginLauncher (root : System.FilePath) : String :=
   "#!/bin/sh\nset -eu\nEGGSHELL_PREFIX=" ++ shellQuote root.toString ++ r#"
 export EGGSHELL_PREFIX
 case "${1-}" in
+  codex-start) exec "$EGGSHELL_PREFIX/libexec/eggshell" codex-hook ;;
   codex-hook|codex-daemon|codex-worker|codex-rpc) exec "$EGGSHELL_PREFIX/libexec/eggshell" "$@" ;;
   *) exec "$EGGSHELL_PREFIX/libexec/eggshell" egg "$@" ;;
 esac

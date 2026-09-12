@@ -7,8 +7,8 @@
 </p>
 
 <p align="center">
-  <strong>Stop paying twice for work Codex already did.</strong><br>
-  Carry completed work across independent Codex chats—locally, without special prompts.
+  <strong>AI memory. Fewer tokens.</strong><br>
+  Reuse prior work across independent AI agent chats, with local memory and no LLM calls to organize it.
 </p>
 
 <p align="center">
@@ -28,31 +28,10 @@
   <a href="#privacy">Privacy</a>
 </p>
 
-<p align="center">
-  <a href="docs/demo.md">
-    <picture>
-      <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/demo/overview.svg">
-      <img src="docs/assets/demo/walkthrough.gif" alt="Recorded LLVM walkthrough: investigate in one chat, reuse findings in another, check new questions, and compare tokens and answer quality. All attempts used 82% fewer follow-up tokens per completion; six answers were usable, three needed minor corrections, and one needed a substantive correction. One task and one fresh reference, with prior work excluded." width="100%">
-    </picture>
-  </a>
-</p>
-
-<p align="center">
-  <a href="docs/demo.md">Read the recorded walkthrough</a> ·
-  <a href="docs/assets/demo/walkthrough.mp4">Watch the 30-second video</a> ·
-  <a href="docs/assets/demo/overview.svg">Static version</a>
-</p>
-
-Eggshell is a local memory plugin for Codex. It saves work from one chat and
-makes relevant results available to a separate chat: repository searches,
-commands, documentation findings, and the conclusions drawn from them.
+Eggshell is **local memory that helps AI agents use fewer tokens**.
+It saves work from one chat and makes relevant results available to a separate
+chat: repository searches, commands, documentation findings, and conclusions.
 It is useful when you return to related work in the same project.
-
-In the [recorded LLVM walkthrough](docs/demo.md), one chat maps how Clang chooses
-a toolchain. A new chat reuses those findings to investigate language and target
-edge cases, and reports what remains unverified. You ask ordinary questions;
-Eggshell selects prior work automatically. The walkthrough is an edited English
-summary of the study, with links to its measurement record.
 
 In our LLVM follow-up experiment, Eggshell used **about 80% fewer tokens than
 starting fresh**, with **9 of 10 answers needing no substantive correction**.
@@ -60,17 +39,43 @@ Memory is built and organized locally, **without LLM calls or additional billed
 tokens for memory management**. These results cover one task with existing
 prior work; see [Evidence](#evidence) for the comparison and its limits.
 
+**[Watch the 30-second walkthrough](docs/demo.md)** or
+**[try it in two chats](docs/try-it.md)**. Ask ordinary questions: Eggshell
+automatically brings relevant findings from the first investigation into the
+follow-up. The walkthrough is an edited English summary of the measured study.
+
+Use the published **Codex plugin**, or the separate, experimental
+[adapters for Claude Code, Gemini CLI, Cursor, and OpenCode](adapters/README.md).
+The adapters use the same memory engine and are built and installed separately.
+They have automated engine integration tests; live agent sessions and token
+savings have not yet been evaluated for those four clients.
+
 ## Install
+
+For **Claude Code, Gemini CLI, Cursor, or OpenCode**, follow the
+[adapter installation guide](adapters/README.md#install). The steps below install
+the **Codex plugin**.
 
 You need macOS or Linux on Apple Silicon/ARM64 or x86-64, Python 3, and the Codex
 CLI available as `codex`. Your Codex client must support plugins and command
 hooks. Setup downloads the Eggshell binary and a local search model.
 
-**[Install from the Plugins Directory](https://chatgpt.com/plugins/plugins_6aa482a5d9048191a727260b5f898078)**,
-then ask Codex: **“Set up Eggshell for this Codex project.”** The included setup
-workflow installs the runtime for the directory plugin.
+1. **[Install the plugin](https://chatgpt.com/plugins/plugins_6aa482a5d9048191a727260b5f898078)**,
+   then ask Codex: **“Set up Eggshell for this project.”** Setup installs the
+   runtime and search model and prepares the project, preserving existing settings.
+2. **Enable it in `/hooks`**, then start a new chat in the project.
+3. **Check the startup message:** “Eggshell session hook connected”. Run
+   **`!egg doctor`** to check setup. If the message is absent, check `/hooks`.
+   Complete the [two-chat example](docs/try-it.md) and use **`!egg graph`** to
+   confirm that saved work reaches the follow-up.
 
-For a standalone installation from a terminal:
+After initial setup, recording and relevant handoffs are automatic; ordinary
+tasks need no special prompts. Missing setup produces a startup notice once the
+hooks are trusted. **This integration requires Codex command hooks; ordinary
+ChatGPT Chat does not provide automatic Eggshell memory.**
+
+<details>
+<summary>Install from a terminal instead</summary>
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
@@ -84,6 +89,8 @@ The installer checks the release checksum, installs the plugin and `egg`
 command, and prepares local search. Add the same PATH setting to your shell
 configuration if needed. In Codex, review and enable Eggshell's hooks through
 `/hooks`, then start a new chat in the project.
+
+</details>
 
 `egg init` creates `.eggshell.toml` and configures `.eggs/work.egg`, a local file
 of saved work and outcomes. The `.eggs` directory is ignored by Git. The work
@@ -121,18 +128,14 @@ For shared work files, custom install locations, and troubleshooting, see the
 
 ## How it works
 
-<p align="center">
-  <img src="docs/assets/brand/how-it-works.svg" alt="Codex work and outcomes are saved locally; relevant prior work is selected for a separate chat" width="100%">
-</p>
-
-1. **Record work and outcomes.** Codex hooks observe the current request,
+1. **Record work and outcomes.** The integration observes the current request,
    supported tool inputs and results, and the final answer. A timeout or empty
    result can be useful evidence too.
 2. **Select relevant history.** Local text matching and MiniLM embeddings find
    related work in the files you allow Eggshell to read. The graph connects
    requests to outcomes and their supporting operations.
 3. **Continue the task.** Eggshell sends selected prior work as a **handoff**:
-   context for the new chat. Codex is asked to reuse supported findings, check
+   context for the new chat. The agent is asked to reuse supported findings, check
    open or changed facts, and report what it reused, checked, or left unverified.
 4. **Save progress.** Each observed tool result is saved independently. The final
    answer adds the parent task result; unfinished work remains open.
@@ -143,7 +146,11 @@ Eggshell preserves the earlier outcome so the agent can explain what changed.
 
 Search and graph processing run locally. Eggshell does not ask an LLM to write
 summaries, classify memories, or maintain the graph. Selected memory and the
-agent's subsequent work still consume the normal Codex input and output tokens.
+agent's subsequent work still consume the model's normal input and output tokens.
+The engine, adapters, retrieval selection, setup logic, and package builder are
+written in Lean. Python is confined to FastEmbed inference and the existing
+NumPy numerical kernels; it does not organize memory or select handoffs.
+See [verified contracts and runtime boundaries](docs/lean-boundaries.md).
 See the [architecture reference](docs/architecture.md) for matching, graph
 operations, and the Lean core.
 
@@ -159,6 +166,7 @@ Run these inside the relevant Codex chat:
 !egg graph            show the exact handoff sent to Codex
 !egg why              explain the handoff selection
 !egg inspect          show resolved storage paths
+!egg doctor           check setup without changing settings or memory
 !egg off              disable memory and clear the active turn (saved work is retained)
 !egg on               enable memory again
 !egg next private     read memory without saving the next turn
@@ -174,8 +182,8 @@ recording and handoffs. [More controls and configuration](docs/codex-plugin.md).
 
 ### One LLVM follow-up task, ten completed trials
 
-We repeated one investigation of Clang target and language options that affect
-toolchain selection or forwarded arguments. Each trial started in an independent
+Using Codex, we repeated one investigation of Clang target and language options
+that affect toolchain selection or forwarded arguments. Each trial started in an independent
 chat with the same question, source snapshot, model, and prior `.egg`. These
 trials used the **current default handoff prompt**.
 It directs the agent to reuse supported results, check unresolved or changed
@@ -229,13 +237,13 @@ or superiority over other memory methods.
 
 Eggshell has no hosted service, telemetry, or account system. Saved work,
 embeddings, and search processing stay on your machine. **Selected prior work
-is passed to Codex as model input** and is handled under the settings and terms
-of your Codex provider, just like other context in the chat.
+is passed to your agent as model input** and is handled under the settings and
+terms of its model provider, just like other context in the chat.
 
 Installation downloads the release, Python dependencies, and MiniLM model.
 Work files may contain prompts, source code, and tool results; choose carefully
 which files a project can read. Read-only mode prevents saving new work but
-does not prevent sending existing memory to Codex.
+does not prevent sending existing memory to the agent.
 
 See [PRIVACY.md](PRIVACY.md) for storage locations, network behavior, and
 removal. Report vulnerabilities through the private channel in

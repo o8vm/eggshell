@@ -1,14 +1,18 @@
 module
 
 public import Eggshell.Install
+public import Eggshell.SearchProvider
+public import Eggshell.Setup
 
 @[expose] public section
 
 def usage : String :=
-  "usage: eggshell install codex\n       eggshell install runtime\n       eggshell uninstall codex\n       egg init\n       egg [COMMAND]"
+  "usage: eggshell install codex\n       eggshell install runtime\n       eggshell setup [--project PATH] [--check]\n       eggshell uninstall codex\n       egg init\n       egg [COMMAND]"
 
 def main (arguments : List String) : IO UInt32 := do
   match arguments with
+  | "search-provider" :: options => Eggshell.SearchProvider.run options
+  | "setup" :: options => Eggshell.Setup.command options
   | ["codex-hook"] => Eggshell.Plugin.Daemon.hookClient
   | ["codex-daemon", "shutdown"] => do
       Eggshell.Plugin.Daemon.shutdown

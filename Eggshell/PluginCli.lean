@@ -9,7 +9,37 @@ namespace Eggshell.Plugin
 def controlUsage : String :=
   "usage: egg [init|on|off|use P|next P|next graph auto|none|VALUES|keep [EGG]|drop|" ++
   "graph [VALUES]|why|find TEXT|class VALUE|union LEFT RIGHT|split UNION|" ++
-  "diff [EGG]|inspect]"
+  "diff [EGG]|inspect|doctor]"
+
+/-- Inspect configuration without creating session state, writing memory, or
+    starting search. Installed/configured is not proof that native hooks ran. -/
+def doctor : IO String := do
+  let config ← Config.load (← IO.currentDir)
+  let session ← IO.getEnv "CODEX_THREAD_ID"
+  let state : Option ThreadState ← match session with
+    | none => pure none
+    | some id => do
+        let files ← sessionFiles id
+        readJson? files.state stateJsonDefaults
+  let mut fields := [("runtime", Lean.toJson "installed"),
+    ("hook_trust", Lean.toJson "review /hooks in Codex"),
+    ("session_state_present", Lean.toJson state.isSome),
+    ("handoff_observed", Lean.toJson (state.any (! ·.lastHandoff.isEmpty)))]
+  match config with
+  | none => fields := fields ++ [("configuration", Lean.toJson "missing"),
+      ("next_step", Lean.toJson "Set up Eggshell for this project.")]
+  | some config =>
+      let profile := state.map (·.profile) |>.getD config.defaultProfile
+      let selection ← IO.ofExcept (Config.resolve config profile)
+      let mode := if state.any (! ·.enabled) ||
+          (selection.read.isEmpty && selection.write.isNone) then "off"
+        else if selection.write.isNone then "read-only" else "read/write"
+      fields := fields ++ [("configuration", Lean.toJson "ready"),
+        ("config", Lean.toJson config.source.toString),
+        ("profile", Lean.toJson profile), ("memory", Lean.toJson mode),
+        ("next_step", Lean.toJson
+          "Review /hooks and start a new chat. Verify saving and delivery with the two-chat example.")]
+  pure (Lean.Json.mkObj fields |>.compress)
 
 def controlSession : IO String := do
   match ← IO.getEnv "CODEX_THREAD_ID" with
@@ -263,7 +293,7 @@ def eggControl (arguments : List String) : IO UInt32 := do
     IO.println controlUsage
     return 0
   try
-    IO.println (← control arguments)
+    IO.println (← if arguments == ["doctor"] then doctor else control arguments)
     pure 0
   catch error =>
     IO.eprintln s!"egg: {error}"

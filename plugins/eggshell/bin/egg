@@ -5,14 +5,19 @@ export EGGSHELL_PREFIX
 runtime="$EGGSHELL_PREFIX/libexec/eggshell"
 marker="$EGGSHELL_PREFIX/libexec/eggshell.owner"
 if [ ! -x "$runtime" ] || [ ! -f "$marker" ] || [ "$(cat "$marker")" != "o8vm/eggshell" ]; then
+  if [ "${1-}" = codex-start ]; then
+    printf '%s\n' '{"systemMessage":"Eggshell is installed, but memory is not active: its local runtime is missing. Ask Codex: Set up Eggshell for this project. Then review /hooks and start a new chat."}'
+    exit 0
+  fi
   if [ "${1-}" = codex-hook ]; then
     printf '{}\n'
     exit 0
   fi
-  echo 'Eggshell runtime is not installed. Use the Eggshell setup skill first.' >&2
+  echo 'Eggshell runtime is not installed. Ask Codex: Set up Eggshell for this project.' >&2
   exit 1
 fi
 case "${1-}" in
+  codex-start) exec "$runtime" codex-hook ;;
   codex-hook|codex-daemon|codex-worker|codex-rpc) exec "$runtime" "$@" ;;
   *) exec "$runtime" egg "$@" ;;
 esac

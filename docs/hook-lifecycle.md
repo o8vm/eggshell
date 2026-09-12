@@ -94,7 +94,7 @@ incremental roots, replay without revision growth, final promotion, and corrupt
 state recovery. Its deterministic hook fixtures explicitly drain the independent
 writer; real concurrency is exercised separately.
 
-`tests/test_hook_lifecycle.py` runs the production binary in isolated temporary
+`tests/LifecycleTests.lean` runs the production binary in isolated temporary
 directories without model downloads or LLM calls. It injects authority lock
 contention, lock-owner death, search hangs and deadlines, writer death, manager
 death, lost receipts, and malformed state. It checks actual `.egg` bytes before

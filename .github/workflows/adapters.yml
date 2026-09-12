@@ -1,0 +1,38 @@
+name: Adapter contracts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'adapters/**'
+      - 'Eggshell/**'
+      - 'adapters/native/Tests.lean'
+      - 'tests/test_opencode_adapter.mjs'
+      - '.github/workflows/adapters.yml'
+      - 'lean-toolchain'
+      - 'lakefile.lean'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  adapters:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+      - name: Build independent adapter companion
+        working-directory: adapters/native
+        run: lake build eggshell_bridge adapter_tests
+      - name: Engine integration contracts
+        working-directory: adapters/native
+        run: .lake/build/bin/adapter_tests
+      - name: OpenCode output contracts
+        run: node --test tests/test_opencode_adapter.mjs
