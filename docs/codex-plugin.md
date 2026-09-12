@@ -30,11 +30,32 @@ an existing configuration. Ordinary prompts require no special format.
 
 ### Installation from a plugin package
 
-The packaged plugin includes an Eggshell setup and inspection skill. After
-installing the package in Codex, ask it to set up Eggshell. The bundled setup
-helper downloads the runtime for your platform, checks the package's pinned
-SHA-256, and installs the runtime without registering another plugin. Review
-`/hooks` after setup and start a new chat.
+Install the plugin, then ask Codex **“Set up Eggshell for this project.”** The
+setup skill installs the runtime and search model, initializes missing project
+settings, and preserves existing project and global settings. The download is
+checked against the package's pinned SHA-256. It does not register another plugin.
+
+Review and enable Eggshell in **`/hooks`**, then start a new chat. Look for
+**“Eggshell session hook connected”** and run **`!egg doctor`**. This reports
+configuration, the current profile, and whether a handoff has been observed in
+the current session; it never creates a session, enables memory, or edits a file.
+`off` and `read-only` settings remain in effect. A configuration check does not
+prove that all hooks are trusted or that a handoff has been delivered. Use the
+[two-chat example](try-it.md) to verify saving and reuse.
+
+If a trusted startup hook finds no runtime or configuration, it shows a setup
+message. Missing-runtime hooks stay quiet on tool calls and compaction, and
+never download dependencies or prevent the task from continuing. If no startup
+message appears, check `/hooks`: an untrusted hook cannot display its own notice.
+
+To inspect an installation without changes, run
+`python3 <plugin-root>/scripts/setup.py --check --project <absolute-project-path>`.
+For setup, omit `--check`. The default project is the current directory.
+
+**Supported execution environment:** Codex with local command hooks on macOS or
+Linux. Ordinary ChatGPT Chat can expose the setup skill but cannot run this
+automatic memory integration. This package connects Codex; other agents use the
+separate, experimental [harness adapters](../adapters/README.md).
 
 If migrating from the standalone installer, remove its `eggshell@eggshell`
 plugin registration before enabling the packaged hooks. Retain the runtime and
@@ -103,6 +124,7 @@ model. Run session controls inside the chat whose memory you want to manage.
 !egg off              disable recording and handoffs; clear the active turn; retain saved work and queued commits
 !egg on               enable memory again
 !egg inspect          show resolved file paths and saved state identifiers
+!egg doctor           check setup without changing settings or memory
 ```
 
 Observed tool results are saved independently while the turn runs. The final

@@ -5,10 +5,12 @@ analytics, advertising identifier, or account system.
 
 ## Data Eggshell observes
 
-When its Codex hooks are enabled, Eggshell can receive the current user prompt,
+When an integration is enabled, Eggshell can receive the current user prompt,
 supported tool inputs and results, the final assistant message, session and turn
-identifiers, and the working directory. The stable hook API does not expose
-hidden chain-of-thought. Eggshell does not scrape Codex's private transcript.
+identifiers, and the working directory. It does not scrape private transcripts
+or collect hidden chain-of-thought. The separate
+[harness adapters](adapters/README.md) forward selected event fields, excluding
+account details, transcript paths, and reasoning fields.
 
 The active turn is staged under the local Eggshell data root described below.
 In a writable profile, observed tool results are journaled and queued for saving
@@ -28,14 +30,15 @@ MiniLM model. After installation, prompts, tool results, embeddings, and `.egg`
 files are not sent to an Eggshell server. The daemon listens only on the local
 loopback interface.
 
-**Selected prior work is sent to Codex as model input.** It may contain earlier
+**Selected prior work is sent to your agent as model input.** It may contain earlier
 prompts, source code, commands, and tool results. That context is processed under
-the settings and terms of your Codex provider. Local memory storage does not
-make Codex inference local. Normal task and handoff tokens still count toward
-Codex usage; Eggshell makes no additional LLM calls to organize memory.
+the settings and terms of the agent's model provider. Local memory storage does
+not make model inference local. Normal task and handoff tokens still count
+toward model usage; Eggshell makes no additional LLM calls to organize memory.
 
 A read-only profile prevents new saves but still permits existing memory to be
-sent to Codex. Use `!egg off` to disable both recording and handoff delivery.
+sent to the agent. Use `!egg off` in Codex, or the adapter's `control ... off`
+command, to disable both recording and handoff delivery for that session.
 
 ## Stored data
 
@@ -44,9 +47,15 @@ sent to Codex. Use `!egg off` to disable both recording and handoff delivery.
   explicit configuration. Missing read paths are not created.
 - Staged turns, recovery state, and daemon coordination live under
   `EGGSHELL_DATA_ROOT`, which defaults to
-  `$EGGSHELL_PREFIX/share/eggshell/plugin`. This stable root is shared by Codex hooks
-  and the `!egg` shell command. It does not select or relocate any saved `.egg`
-  file.
+  `$EGGSHELL_PREFIX/share/eggshell/plugin`. Integrations use this stable root,
+  with separate adapter session namespaces for each harness. It does not select
+  or relocate any saved `.egg` file.
+- Adapters store opaque turn/call identifiers and correlation hashes in
+  per-session SQLite files under the data root's `adapters` directory. Writable
+  turns may also retain an authorized turn snapshot for late tool results and
+  a temporary answer candidate under their session directory. Ambiguous Gemini
+  tool results, when recording is permitted, stay in `adapters/unattributed`
+  without being assigned to another task or inserted into the memory graph.
 - The MiniLM runtime and model live under
   `$EGGSHELL_PREFIX/share/eggshell/minilm`.
 - `EGGSHELL_PREFIX` defaults to `~/.local` and may point to another absolute
@@ -59,15 +68,17 @@ permissions. Eggshell-owned session directories and newly created work-file
 directories use `0700` permissions.
 
 `egg uninstall codex` removes the Plugin and launcher but intentionally keeps
-user-owned `.egg` files and recovery data. To erase Eggshell data completely,
+user-owned `.egg` files and recovery data. The adapter uninstaller similarly
+removes its integration entries while retaining memory and shared runtime files.
+To erase Eggshell data completely,
 remove the `.egg` paths listed by `!egg inspect` and the local Eggshell data
 directory after uninstalling. Inspect those exact paths before deleting them.
 
 ## Control boundary
 
 Prior outcomes are fallible historical data, not instructions. Recorded tool
-occurrences are never rewritten by semantic matching. A hook failure does not
-stop Codex. Eggshell does not invent missing results or mark an incomplete task
+occurrences are never rewritten by semantic matching. Hook errors return without
+blocking ordinary agent execution. Eggshell does not invent missing results or mark an incomplete task
 as completed when saving observed work.
 
 Security issues should be reported through GitHub's private vulnerability
