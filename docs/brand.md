@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/brand/github-social-preview-1280x640.png" alt="Eggshell carries completed work across independent Codex chats" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/github-social-preview-dark-1280x640.png">
+    <img src="assets/brand/github-social-preview-light-1280x640.png" alt="Eggshell — AI memory. Fewer tokens." width="100%">
+  </picture>
 </p>
 
 # Brand assets
@@ -22,9 +25,10 @@ All canonical assets live in [`docs/assets/brand`](assets/brand/). Use the suppl
 | [Symbol](assets/brand/eggshell-symbol.svg) | Small square placements where the name appears nearby. |
 | [Wordmark](assets/brand/eggshell-wordmark.svg) | Narrow text-only placement when the symbol is already established. |
 | [Dark app icon](assets/brand/eggshell-app-icon-dark-1024.png) | App icon source and square avatars. |
-| [GitHub social preview](assets/brand/github-social-preview-1280x640.png) | Repository social preview and link cards. |
-| [GitHub social preview source](assets/brand/github-social-preview-1280x640.svg) | Editable layout source for regenerating the PNG without altering the logo. |
-| [Recorded walkthrough](demo.md) | README animation, static overview, and shareable 30-second MP4 based on the LLVM study. |
+| [Light social preview](assets/brand/github-social-preview-light-1280x640.png) | Current repository social preview and light link cards. |
+| [Dark social preview](assets/brand/github-social-preview-dark-1280x640.png) | Dark link cards. |
+| [Light source](assets/brand/github-social-preview-light-1280x640.svg) / [dark source](assets/brand/github-social-preview-dark-1280x640.svg) | Editable layouts that preserve the canonical logo. |
+| [Recorded walkthrough](demo.md) | Animation, static overview, and shareable 30-second MP4 based on the LLVM study. |
 | [Cross-chat handoff](assets/brand/cross-chat-handoff.svg) | Illustrative diagram showing what moves between independent chats. |
 | [How it works](assets/brand/how-it-works.svg) | Three-step product explanation for documentation and presentations. |
 
@@ -56,12 +60,19 @@ The bare symbol is appropriate only where “Eggshell” is clear from the surro
 - Use black artwork on light surfaces and white artwork on dark surfaces.
 - Keep the mascot and wordmark together in their supplied relationship.
 - Use the symbol alone only at sizes where its facial features remain legible.
-- Add descriptive alt text such as `Eggshell carries completed work across independent Codex chats`.
+- Add descriptive alt text such as `Eggshell — local memory for AI agents that saves tokens`.
 - Do not stretch, rotate, outline, shadow, crop, recolor individual parts, or typeset a replacement wordmark.
 
 ## GitHub repository preview
 
-GitHub does not automatically read a social-preview image from the repository. Upload [`github-social-preview-1280x640.png`](assets/brand/github-social-preview-1280x640.png) in the repository's **Settings → General → Social preview** control.
+GitHub does not automatically read a social-preview image from the repository. Upload [`github-social-preview-light-1280x640.png`](assets/brand/github-social-preview-light-1280x640.png) in the repository's **Settings → General → Social preview** control.
 
-The README uses the same visual system together with a product handoff diagram,
-while shared repository links retain the compact brand-first preview.
+The preview keeps the canonical horizontal mascot and wordmark together, with
+the caption **“AI memory. Fewer tokens.”** below. The README uses the same
+headline beneath its existing theme-aware horizontal logo. Installation
+documentation identifies the available integrations and their validation status.
+
+Regenerate both the self-contained SVG and PNG with
+`python3 scripts/render_social_preview.py` (requires `rsvg-convert`). GitHub
+stores one social preview image; the separate dark export is available for
+other placements.
