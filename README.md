@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="https://chatgpt.com/plugins/plugins_6aa482a5d9048191a727260b5f898078">Get the plugin</a> ·
   <a href="#install">Install</a> ·
   <a href="docs/try-it.md">Try it yourself</a> ·
   <a href="docs/demo.md">30-second demo</a> ·
@@ -64,6 +65,12 @@ prior work; see [Evidence](#evidence) for the comparison and its limits.
 You need macOS or Linux on Apple Silicon/ARM64 or x86-64, Python 3, and the Codex
 CLI available as `codex`. Your Codex client must support plugins and command
 hooks. Setup downloads the Eggshell binary and a local search model.
+
+**[Install from the Plugins Directory](https://chatgpt.com/plugins/plugins_6aa482a5d9048191a727260b5f898078)**,
+then ask Codex: **“Set up Eggshell for this Codex project.”** The included setup
+workflow installs the runtime for the directory plugin.
+
+For a standalone installation from a terminal:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL \
